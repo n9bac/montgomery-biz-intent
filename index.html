@@ -1,0 +1,1741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Montgomery Business Companion Explorer</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous" />
+    <style>
+        #map { height: 100vh; width: 100%; background: #f1f5f9; }
+        .custom-popup .leaflet-popup-content-wrapper { 
+            background: white !important; 
+            border: none !important; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1) !important;
+            border-radius: 16px !important; 
+            padding: 0 !important;
+            overflow: hidden !important;
+        }
+        .custom-popup .leaflet-popup-content {
+            margin: 0 !important;
+            width: 280px !important;
+        }
+        .animate-spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* Details/Summary styling */
+        details summary::-webkit-details-marker { display: none; }
+        details summary { list-style: none; }
+    </style>
+</head>
+<body class="bg-slate-50 font-sans antialiased">
+    <div id="root"></div>
+
+    <!-- React, ReactDOM, Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin="anonymous"></script>
+    
+    <!-- Leaflet and Turf -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js" crossorigin="anonymous"></script>
+
+    <!-- Gemini SDK via CDN -->
+    <script type="module" crossorigin="anonymous">
+        import('https://esm.sh/@google/genai@2.0.0').then(mod => {
+            window.GoogleGenAI = mod.GoogleGenAI;
+            console.log("Gemini SDK Loaded Successfully");
+        }).catch(err => {
+            console.error("Failed to load Gemini SDK from ESM.sh", err);
+        });
+    </script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // Global Error Handler for diagnostics
+        window.onerror = function(message, source, lineno, colno, error) {
+            console.error("Global Script Error:", {message, source, lineno, colno, error});
+            if (message === "Script error.") {
+                console.error("A cross-origin script error occurred. This is often due to CDN issues or blocked resources.");
+            }
+        };
+
+        // API Key
+        const CENSUS_API_KEY = "c113b395a568d62a02db2a565e8e600f5e1ae9f1";
+
+        function App() {
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+            const [uiMode, setUiMode] = useState('intent'); // Defaults to intent for prototype focus
+            const [geminiApiKey, setGeminiApiKey] = useState('');
+			const [apiKeySubmitted, setApiKeySubmitted] = useState(false);
+			const [selectedTract, setSelectedTract] = useState(null);
+            const [cityData, setCityData] = useState(null);
+            const [geoJsonData, setGeoJsonData] = useState(null);
+            const [viewMode, setViewMode] = useState('opportunity');
+            
+            // New Montgomery Biz Intent State
+            const [businessFamilies, setBusinessFamilies] = useState([]);
+            const [mappingConfig, setMappingConfig] = useState(null);
+            const [advancedConfig, setAdvancedConfig] = useState(null);
+            const [interpreterSchema, setInterpreterSchema] = useState(null);
+            const [investorDescription, setInvestorDescription] = useState("");
+            const [investorPriorities, setInvestorPriorities] = useState("");
+            const [clarificationResponse, setClarificationResponse] = useState("");
+            const [interpretedIntent, setInterpretedIntent] = useState(null);
+            const [isInterpreting, setIsInterpreting] = useState(false);
+			const [keyConfirmed, setKeyConfirmed] = useState(false);
+			const [topMatches, setTopMatches] = useState([]);
+
+            const viewModeRef = useRef(viewMode);
+			const confirmApiKey = async () => {
+				if (!geminiApiKey.trim()) return;
+				try {
+					if (!window.GoogleGenAI) throw new Error("SDK not ready");
+					const ai = new window.GoogleGenAI({ apiKey: geminiApiKey.trim() });
+					await ai.models.generateContent({
+						model: "gemini-3-flash-preview",
+						contents: [{ parts: [{ text: "reply only: ok" }] }]
+					});
+					setKeyConfirmed(true);
+					setApiKeySubmitted(true);
+				} catch(err) {
+					setKeyConfirmed(false);
+					alert("Key validation failed: " + err.message);
+				}
+			};
+            const mapRef = useRef(null);
+            const geoJsonLayerRef = useRef(null);
+
+            useEffect(() => {
+                fetch('/business_families.json')
+                    .then(res => res.json())
+                    .then(data => setBusinessFamilies(data || []))
+                    .catch(err => console.error("Could not load families", err));
+
+                fetch('/business_need_mapping.json')
+                    .then(res => res.json())
+                    .then(data => setMappingConfig(data))
+                    .catch(err => console.error("Could not load mapping config", err));
+
+                fetch('/advanced_indicator_seed_v1.json')
+                    .then(res => res.json())
+                    .then(data => setAdvancedConfig(data))
+                    .catch(err => console.error("Could not load advanced config", err));
+
+                fetch('/interpreter_output_schema.json')
+                    .then(res => res.json())
+                    .then(data => setInterpreterSchema(data))
+                    .catch(err => console.error("Could not load interpreter schema", err));
+            }, []);
+
+            useEffect(() => {
+                viewModeRef.current = viewMode;
+            }, [viewMode]);
+
+            useEffect(() => {
+                if (uiMode === 'map' && mapRef.current) {
+                    mapRef.current.invalidateSize();
+                }
+            }, [uiMode]);
+
+            const runInterpreter = async () => {
+                if (!investorDescription.trim()) return;
+                
+                setIsInterpreting(true);
+                setInterpretedIntent(null);
+                
+                try {
+                    if (!window.GoogleGenAI) {
+                        throw new Error("Gemini SDK not properly initialized.");
+                    }
+
+                    // In this environment, we expect GOOGLE_GENERATIVE_AI_API_KEY to be available
+                    // We check common aliases just in case.
+					const apiKey = geminiApiKey.trim() || null;
+					if (!apiKey) {
+						console.warn("No API key provided. Falling back to mock.");
+                        // Wait slightly to feel "interpretive"
+						await new Promise(resolve => setTimeout(resolve, 800));
+						runMockLogic();
+						return;
+					}
+					setApiKeySubmitted(true);
+
+                    const ai = new window.GoogleGenAI({ apiKey });
+                    
+                    const systemInstruction = `
+You are the AI Interpreter for Montgomery Biz Intent.
+
+Your role is to translate an investor’s natural-language business idea into a structured business profile for a deterministic analytical engine.
+
+You are NOT the final judge.
+You do NOT decide:
+* legal compliance
+* zoning validity
+* permit status
+* final recommendation
+* final tract ranking
+
+You only translate the business idea into structured product logic.
+
+## Inputs
+You will receive:
+* business_text: the investor’s natural-language business description
+* priority_text: optional natural-language priorities
+* optionally clarification_response_text: if a clarification was requested
+
+## Reference constraints
+You must use only the known business families and the known output schema.
+You must NOT invent new family IDs.
+
+REFERENCE FAMILIES:
+${JSON.stringify(businessFamilies)}
+
+OUTPUT SCHEMA:
+${JSON.stringify(interpreterSchema)}
+
+## Behavioral rules
+1. Think operationally, not poetically. Focus on activity, space type, and location needs.
+2. Prefer decomposition over invention. Decompose hybrid concepts into core/secondary activities.
+3. Hybrid vs Contextual: Use 'secondary_family_id' to add context, but set 'detected_flags.hybrid_concept' to 'true' ONLY if the business genuinely combines two distinct operational models (e.g., a bookstore with a cafe). If the secondary family just describes a flavor or specialty (e.g., pediatric speech therapy), set 'hybrid_concept' to 'false'.
+4. Be honest about uncertainty. Lower confidence if vague.
+5. Ask at most one clarification question.
+6. Use priority_text as business context (parking, low rent, young clientele, etc.).
+7. Sensitive clientele: interpret as service-design context (privacy, calm environment), not demographic targeting.
+8. Do not overclaim success or zoning availability.
+9. Output JSON only. No explanations outside the JSON.
+
+## Decision order
+1. Identify dominant activity
+2. Identify operating model
+3. Identify space profile
+4. Infer location needs
+5. Identify secondary family context if needed.
+6. Determine if the concept is a true "hybrid" (dual operation).
+7. Assess ambiguity.
+8. Produce valid structured JSON only.
+
+## Family selection and Hybrid policy
+* 'business_family_id' must be one known family ID.
+* 'secondary_family_id' can be used for contextual modifiers.
+* 'detected_flags.hybrid_concept' = 'true' only for dual-nature operations (e.g., Bike shop + Repair workshop).
+* 'detected_flags.hybrid_concept' = 'false' for specialized but single-mode concepts (e.g., Adult Day Care, Pediatric Dental).
+* if too unclear, use 'emerging_or_hard_to_classify'.
+
+## Confidence policy
+* 0.80–1.00 = clear concept
+* 0.60–0.79 = mostly clear
+* 0.40–0.59 = hybrid or partly unclear
+* below 0.40 = weak understanding
+
+## Ambiguity policy
+* low = clearly mappable
+* medium = hybrid but still interpretable
+* high = materially unclear or underdefined
+
+## Numeric rules
+All numeric values in location_needs, activity_profile, and confidence must remain in the range 0.0 to 1.0.
+`;
+
+                    const userPrompt = `
+business_text: "${investorDescription}"
+priority_text: "${investorPriorities || 'none'}"
+${clarificationResponse ? `clarification_response_text: "${clarificationResponse}"` : ''}
+`;
+
+                    const response = await ai.models.generateContent({
+                        model: "gemini-3-flash-preview",
+                        contents: [{ parts: [{ text: userPrompt }] }],
+                        config: {
+                            systemInstruction: systemInstruction,
+                            responseMimeType: "application/json",
+                        }
+                    });
+
+                    if (!response.text) throw new Error("Empty response from AI");
+                    
+                    const result = JSON.parse(response.text);
+
+                    // --- Validation Gate ---
+                    const validateResult = (data) => {
+                        const validFamilies = businessFamilies.map(f => f.id);
+                        const validZoningFamilies = Array.from(new Set(
+                            businessFamilies.flatMap(f => f.likely_zoning_families || [])
+                        ));
+                        
+                        const requiredFields = [
+                            "business_text", "canonical_label", "business_family_id", 
+                            "customer_mode", "space_profile", "location_needs", 
+                            "activity_profile", "detected_flags", "confidence", 
+                            "ambiguity_level", "needs_confirmation", "interpretation_notes",
+                            "zoning_candidate_families", "reasoning_summary"
+                        ];
+
+                        // 1. Structural Presence Checks
+                        for (const field of requiredFields) {
+                            if (data[field] === undefined) return { valid: false, reason: `Missing field: ${field}` };
+                        }
+                        if (!("priority_text" in data)) return { valid: false, reason: "Missing field: priority_text" };
+                        if (!("secondary_family_id" in data)) return { valid: false, reason: "Missing field: secondary_family_id" };
+                        if (!("clarification_question" in data)) return { valid: false, reason: "Missing field: clarification_question" };
+
+                        // 2. Business Families
+                        if (typeof data.business_family_id !== 'string' || !validFamilies.includes(data.business_family_id)) {
+                            return { valid: false, reason: `Invalid business_family_id: ${data.business_family_id}` };
+                        }
+                        
+                        // Strict check for secondary_family_id
+                        if (data.secondary_family_id !== null && typeof data.secondary_family_id !== 'string') {
+                            return { valid: false, reason: "secondary_family_id must be string or null" };
+                        }
+                        if (data.secondary_family_id && !validFamilies.includes(data.secondary_family_id)) {
+                            return { valid: false, reason: `Invalid secondary_family_id: ${data.secondary_family_id}` };
+                        }
+
+                        // 3. Zoning Candidate Families
+                        if (!Array.isArray(data.zoning_candidate_families)) {
+                            return { valid: false, reason: "zoning_candidate_families must be an array" };
+                        }
+                        for (const z of data.zoning_candidate_families) {
+                            if (typeof z !== 'string' || !validZoningFamilies.includes(z)) {
+                                return { valid: false, reason: `Invalid zoning candidate family: ${z}` };
+                            }
+                        }
+
+                        // 4. Enums
+                        const validCustomerModes = ["walk_in", "appointment", "delivery", "backoffice", "hybrid"];
+                        const validSpaceProfiles = ["storefront", "small_retail_unit", "restaurant_unit", "office", "clinic_like", "studio", "workshop", "warehouse", "flex_storefront", "unknown"];
+                        const validAmbiguityLevels = ["low", "medium", "high"];
+
+                        if (!validCustomerModes.includes(data.customer_mode)) return { valid: false, reason: `Invalid customer_mode: ${data.customer_mode}` };
+                        if (!validSpaceProfiles.includes(data.space_profile)) return { valid: false, reason: `Invalid space_profile: ${data.space_profile}` };
+                        if (!validAmbiguityLevels.includes(data.ambiguity_level)) return { valid: false, reason: `Invalid ambiguity_level: ${data.ambiguity_level}` };
+
+                        // 5. Numeric Ranges (0.0 - 1.0)
+                        const checkRange = (val) => typeof val === 'number' && !isNaN(val) && val >= 0 && val <= 1;
+                        
+                        if (!checkRange(data.confidence)) return { valid: false, reason: `Invalid confidence range: ${data.confidence}` };
+                        
+                        const locValues = Object.values(data.location_needs);
+                        if (locValues.length === 0) return { valid: false, reason: "location_needs must not be empty" };
+                        for (const val of locValues) {
+                            if (!checkRange(val)) return { valid: false, reason: `Invalid location_needs value: ${val}` };
+                        }
+                        
+                        const actValues = Object.values(data.activity_profile);
+                        if (actValues.length === 0) return { valid: false, reason: "activity_profile must not be empty" };
+                        for (const val of actValues) {
+                            if (!checkRange(val)) return { valid: false, reason: `Invalid activity_profile value: ${val}` };
+                        }
+
+                        // 6. Booleans and Clarification Logic
+                        if (typeof data.needs_confirmation !== 'boolean') return { valid: false, reason: "needs_confirmation must be boolean" };
+                        if (data.clarification_question !== null && typeof data.clarification_question !== 'string') {
+                            return { valid: false, reason: "clarification_question must be string or null" };
+                        }
+
+                        if (data.needs_confirmation === false && data.clarification_question !== null) {
+                            // Minor correction: if no confirmation needed, clear the question
+                            data.clarification_question = null;
+                        }
+
+                        // 7. Arrays and Flags
+                        if (!Array.isArray(data.interpretation_notes)) return { valid: false, reason: "interpretation_notes must be an array" };
+                        if (data.interpretation_notes.some(n => typeof n !== 'string')) return { valid: false, reason: "interpretation_notes must contain strings only" };
+
+                        if (typeof data.detected_flags !== 'object' || data.detected_flags === null) return { valid: false, reason: "detected_flags must be an object" };
+                        for (const val of Object.values(data.detected_flags)) {
+                            if (typeof val !== 'boolean') return { valid: false, reason: "detected_flags must contain booleans only" };
+                        }
+
+                        return { valid: true };
+                    };
+
+                    const validation = validateResult(result);
+                    if (!validation.valid) {
+                        console.warn("AI result failed validation:", validation.reason);
+                        throw new Error(`Validation Error: ${validation.reason}`);
+                    }
+
+                    setInterpretedIntent(result);
+
+                } catch (err) {
+                    console.error("Gemini Interpretation Failed", err);
+                    setError("AI interpretation failed. Using backup logic.");
+                    runMockLogic();
+                } finally {
+                    setIsInterpreting(false);
+                }
+            };
+
+            const runMockLogic = () => {
+                const input = investorDescription.toLowerCase();
+                const priosText = investorPriorities.toLowerCase();
+                    
+                let family_id = "emerging_or_hard_to_classify";
+                let secondary_id = null;
+                let confidence = 0.85;
+                let label = "General Business (Mock)";
+                let reasoning = "Mapped via fallback keywords.";
+                let customer_mode = "walk_in";
+                let space_profile = "storefront";
+                let notes = ["Mock interpretation applied as fallback."];
+                    
+                const flags = {
+                    alcohol_sensitive: false,
+                    child_sensitive: false,
+                    medical_sensitive: false,
+                    industrial_sensitive: false,
+                    hybrid_concept: false
+                };
+
+                const location_needs = {
+                    visibility: 0.5, footfall: 0.5, parking: 0.5, transit: 0.5,
+                    affluent_area: 0.0, family_area: 0.0, nightlife_area: 0.0,
+                    low_rent_priority: 0.0, vehicle_access: 0.0
+                };
+
+                const activity_profile = {
+                    daytime: 0.9, evening: 0.1, noise_tolerance_needed: 0.1, delivery_logistics: 0.1
+                };
+
+                // Minimal mock logic for essential families
+                if (input.includes("coffee") || input.includes("cafe")) {
+                    family_id = "food_beverage_sitdown";
+                    label = "Cafe (Mock)";
+                } else if (input.includes("burger") || input.includes("fast food")) {
+                    family_id = "food_beverage_quickservice";
+                    label = "Quick Service (Mock)";
+                } else if (input.includes("dentist") || input.includes("clinic")) {
+                    family_id = "health_medical_therapy";
+                    label = "Medical (Mock)";
+                } else if (input.includes("shop") || input.includes("retail")) {
+                    family_id = "retail_storefront";
+                    label = "Retail (Mock)";
+                }
+
+                const result = {
+                    business_text: investorDescription,
+                    priority_text: investorPriorities || null,
+                    canonical_label: label,
+                    business_family_id: family_id,
+                    secondary_family_id: secondary_id,
+                    reasoning_summary: reasoning,
+                    customer_mode: customer_mode,
+                    space_profile: space_profile,
+                    location_needs: location_needs,
+                    activity_profile: activity_profile,
+                    zoning_candidate_families: ["commercial"],
+                    detected_flags: flags,
+                    confidence: confidence,
+                    ambiguity_level: "low",
+                    needs_confirmation: false,
+                    clarification_question: null,
+                    interpretation_notes: notes
+                };
+                setInterpretedIntent(result);
+            };
+
+            const normalize = (val, min, max) => (max === min) ? 0 : (val - min) / (max - min);
+
+            const buildTractIndicatorProfile = (p, ctx) => {
+                const nArea = normalize(p.area || 0, ctx.minArea, ctx.maxArea);
+                const nAge = normalize(p.age || 0, ctx.minAge, ctx.maxAge);
+                
+                const profile = {
+                    demand_score: parseFloat(p.demandScore) || 0,
+                    business_density: p.normBizDensity || 0,
+                    relative_business_presence: p.normBizDensity || 0,
+                    median_income: p.normInc || 0,
+                    median_age: nAge,
+                    transit_access: parseFloat(p.transitAccessScore) || 0,
+                    parking_proxy: 1 - (p.normBizDensity || 0),
+                    vehicle_access_proxy: ((1 - (p.normBizDensity || 0)) * 0.7 + nArea * 0.3),
+                    family_proxy: (1 - Math.abs(nAge - 0.45)),
+                    nightlife_proxy: ((p.normBizDensity || 0) * 0.6 + (parseFloat(p.transitAccessScore) || 0) * 0.4),
+                    commercial_activity_proxy: ((p.normBizDensity || 0) * 0.7 + (parseFloat(p.demandScore) || 0) * 0.3),
+                    low_cost_proxy: 1 - (p.normInc || 0)
+                };
+
+                // Add advanced indicators from advanced_indicator_seed_v1.json if formula is provided
+                profile.after_work_leisure_proxy = (
+                    0.35 * profile.nightlife_proxy + 
+                    0.25 * profile.transit_access + 
+                    0.25 * profile.commercial_activity_proxy + 
+                    0.15 * profile.parking_proxy
+                );
+                
+                return profile;
+            };
+
+            const computeTractFit = (intent, indicators, mapping) => {
+                if (!intent || !indicators || !mapping) return null;
+                
+                const needsMapping = mapping.business_need_to_tract_mapping_v1;
+                const weights = mapping.global_weights;
+                const pWeight = weights.primary_match_weight || 1.0;
+                const sWeight = weights.secondary_match_weight || 0.5;
+                
+                const contributions = {};
+                let totalWeightedFit = 0;
+                let totalNeedMagnitude = 0;
+                
+                // Advanced scoring helper data
+                const directFields = ['demand_score', 'business_density', 'median_income', 'median_age', 'transit_access'];
+                
+                // For indicator_coverage_ratio
+                const allExpectedIndicators = new Set();
+                const availableExpectedIndicators = new Set();
+                
+                let usedDirectCount = 0;
+                let totalIndicatorCount = 0;
+                let coveredNeedWeight = 0;
+
+                mapping.supported_business_needs.forEach(needKey => {
+                    const needImportance = intent.location_needs[needKey] || 0;
+                    if (needImportance === 0) return;
+                    
+                    const map = needsMapping[needKey];
+                    if (!map) {
+                        // Need interpreted but no mapping exists in config
+                        coveredNeedWeight += needImportance * 0.3; // weak_or_incomplete_support tier
+                        return;
+                    }
+                    
+                    let weightedIndicatorSum = 0;
+                    let divisor = 0;
+                    let hasDirect = false;
+                    let hasProxy = false;
+                    
+                    const primary = map.primary_matches || [];
+                    const secondary = map.secondary_matches || [];
+                    
+                    primary.forEach(ind => {
+                        allExpectedIndicators.add(ind);
+                        if (indicators.hasOwnProperty(ind)) {
+                            availableExpectedIndicators.add(ind);
+                            const val = indicators[ind] || 0;
+                            weightedIndicatorSum += val * pWeight;
+                            divisor += pWeight;
+                            totalIndicatorCount++;
+                            if (directFields.includes(ind)) {
+                                usedDirectCount++;
+                                hasDirect = true;
+                            } else {
+                                hasProxy = true;
+                            }
+                        }
+                    });
+                    
+                    secondary.forEach(ind => {
+                        allExpectedIndicators.add(ind);
+                        if (indicators.hasOwnProperty(ind)) {
+                            availableExpectedIndicators.add(ind);
+                            const val = indicators[ind] || 0;
+                            weightedIndicatorSum += val * sWeight;
+                            divisor += sWeight;
+                            totalIndicatorCount++;
+                            if (directFields.includes(ind)) {
+                                usedDirectCount++;
+                                hasDirect = true;
+                            } else {
+                                hasProxy = true;
+                            }
+                        }
+                    });
+                    
+                    const needFit = divisor > 0 ? (weightedIndicatorSum / divisor) : 0;
+                    const contribution = needFit * needImportance;
+                    
+                    // Support level logic per authoritative config
+                    // full (1.0), proxy_only (0.6), weak (0.3)
+                    const supportLevel = hasDirect ? 1.0 : (hasProxy ? 0.6 : 0.3);
+                    coveredNeedWeight += needImportance * supportLevel;
+
+                    contributions[needKey] = {
+                        score: parseFloat(needFit.toFixed(3)),
+                        contribution: parseFloat(contribution.toFixed(3)),
+                        impact: needImportance,
+                        notes: map.notes
+                    };
+                    
+                    totalWeightedFit += contribution;
+                    totalNeedMagnitude += needImportance;
+                });
+                
+                const finalScore = totalNeedMagnitude > 0 ? (totalWeightedFit / totalNeedMagnitude) : 0;
+                
+                const activeContributions = Object.entries(contributions)
+                    .sort(([,a], [,b]) => b.contribution - a.contribution);
+                
+                // Advanced Transparency Scores based on advanced_indicator_seed_v1.json
+                const directDataRatio = totalIndicatorCount > 0 ? (usedDirectCount / totalIndicatorCount) : 0;
+                const indicatorCoverageRatio = allExpectedIndicators.size > 0 
+                    ? (availableExpectedIndicators.size / allExpectedIndicators.size) 
+                    : 1.0;
+                    
+                const ambiguityMap = { low: 1.0, medium: 0.7, high: 0.4 };
+                const businessModelClarity = ambiguityMap[intent.ambiguity_level] || 0.7;
+
+                const proxyConfidenceScore = (0.6 * directDataRatio + 0.25 * indicatorCoverageRatio + 0.15 * businessModelClarity);
+                const dataCompletenessScore = totalNeedMagnitude > 0 ? (coveredNeedWeight / totalNeedMagnitude) : 0;
+
+                return {
+                    total_fit_score: parseFloat(finalScore.toFixed(3)),
+                    per_need_contributions: contributions,
+                    proxy_confidence_score: parseFloat(proxyConfidenceScore.toFixed(3)),
+                    data_completeness_score: parseFloat(dataCompletenessScore.toFixed(3)),
+                    strongest_matches: activeContributions.slice(0, 2).map(([k]) => k.replace(/_/g, ' ')),
+                    weak_matches: [...activeContributions].reverse().slice(0, 2).filter(([k, v]) => v.score < 0.4).map(([k]) => k.replace(/_/g, ' ')),
+                    explanatory_notes: activeContributions.length > 0 
+                        ? `Primary fit driven by ${activeContributions[0][0].replace(/_/g, ' ')} alignment.` 
+                        : "Baseline alignment detected."
+                };
+            };
+
+            const getColor = (val, mode) => {
+                const numVal = typeof val === 'string' ? parseFloat(val) : val;
+                if (mode === 'income') {
+                    return numVal > 80000 ? '#065f46' : numVal > 60000 ? '#059669' : numVal > 40000 ? '#34d399' : numVal > 20000 ? '#a7f3d0' : '#ecfdf5';
+                }
+                return numVal > 0.8 ? '#5b21b6' : numVal > 0.6 ? '#7c3aed' : numVal > 0.4 ? '#a78bfa' : numVal > 0.2 ? '#ddd6fe' : '#f5f3ff';
+            };
+
+            const fetchBizData = async () => {
+                const baseUrl = "https://gis.montgomeryal.gov/server/rest/services/HostedDatasets/Business_License/MapServer/0/query";
+                const queryParams = "where=1%3D1&outFields=OBJECTID,Id,custCOMPANY_NAME,scCODE,scNAME,Full_Address&returnGeometry=true&outSR=4326&f=json&orderByFields=OBJECTID";
+                
+                let offset = 0;
+                const pageSize = 1000;
+                let allFeatures = [];
+                let hasMore = true;
+
+                while (hasMore) {
+                    let data = null;
+                    let attempt = 0;
+                    while (attempt < 3 && !data) {
+                        attempt++;
+                        try {
+                            console.log(`[Business Data] ATTEMPT offset=${offset}, Try=${attempt}`);
+                            const queryUrl = `${baseUrl}?${queryParams}&resultOffset=${offset}&resultRecordCount=${pageSize}`;
+                            const response = await fetch(queryUrl).then(r => {
+                                console.log(`[Business Data] URL: ${queryUrl.split('?')[0]}, Success: ${r.ok}, Status: ${r.status}, Content-Type: ${r.headers.get('content-type')}`);
+                                return r;
+                            });
+                            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+                            if (offset === 14000) {
+                                try {
+                                    const rawText = await response.text();
+                                    console.log(`[Diagnostic] Offset 14000 body preview (300 chars): ${rawText.substring(0, 300)}`);
+                                    data = JSON.parse(rawText);
+                                } catch (err) {
+                                    console.error(`[Diagnostic] Offset 14000 read/parse FAIL: ${err.message}`);
+                                    throw err;
+                                }
+                            } else {
+                                data = await response.json();
+                            }
+                        } catch (e) {
+                            console.error(`[Business Data] FAIL at offset=${offset}, Try=${attempt}, Error: ${e.message}`);
+                            if (attempt < 3) {
+                                const backoff = attempt * 500;
+                                console.log(`[Business Data] Retrying in ${backoff}ms...`);
+                                await new Promise(r => setTimeout(r, backoff));
+                            } else {
+                                throw e;
+                            }
+                        }
+                    }
+
+                    if (data && !data.features) {
+                        console.warn(`[Diagnostic] Offset ${offset} missing 'features'. Keys: ${Object.keys(data).join(', ')}`);
+                    }
+                    console.log(`[Business Data] PARSED offset=${offset}, Count=${data.features?.length || 0}`);
+
+                    if (data.features && data.features.length > 0) {
+                        const geoJsonFeatures = data.features
+                            .filter(f => f.geometry && typeof f.geometry.x === 'number')
+                            .map(f => ({
+                                type: "Feature",
+                                geometry: { type: "Point", coordinates: [f.geometry.x, f.geometry.y] },
+                                properties: f.attributes
+                            }));
+                        allFeatures = allFeatures.concat(geoJsonFeatures);
+                        if (data.features.length < pageSize) hasMore = false;
+                        else offset += pageSize;
+                    } else {
+                        hasMore = false;
+                    }
+                }
+                return { type: "FeatureCollection", features: allFeatures };
+            };
+
+            const fetchAndProcessData = async () => {
+                try {
+                    console.log(">>> STAGE: START fetchAndProcessData");
+                    setLoading(true);
+                    
+                    // 1. Fetch ACS
+                    let acsJson;
+                    try {
+                        console.log(">>> STAGE: BEFORE ACS fetch");
+                        const acsUrl = `https://api.census.gov/data/2022/acs/acs5?get=NAME,B19013_001E,B01002_001E,B01003_001E,B15003_001E,B15003_022E&for=tract:*&in=state:01&in=county:101&key=${CENSUS_API_KEY}`;
+                        const acsRes = await fetch(acsUrl).then(r => {
+                            console.log(`[Census ACS] Success: ${r.ok}, Status: ${r.status}`);
+                            return r;
+                        }).catch(e => {
+                            console.error(`[Census ACS] FAIL, Error: ${e.message}`);
+                            throw e;
+                        });
+                        if (!acsRes.ok) throw new Error("Census API failed");
+                        acsJson = await acsRes.json();
+                        console.log(">>> STAGE: AFTER ACS parse");
+                    } catch (e) {
+                        console.error("[PHASE FAIL] Census ACS", e);
+                        throw e;
+                    }
+
+                    // 2. Fetch TIGER
+                    let tigerGeo;
+                    try {
+                        console.log(">>> STAGE: BEFORE TIGER fetch");
+                        const tigerUrl = `https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/4/query?where=STATE%3D'01'%20AND%20COUNTY%3D'101'&outFields=GEOID,TRACT&returnGeometry=true&outSR=4326&f=geojson`;
+                        const tigerRes = await fetch(tigerUrl).then(r => {
+                            console.log(`[TIGER Geo] Success: ${r.ok}, Status: ${r.status}`);
+                            return r;
+                        }).catch(e => {
+                            console.error(`[TIGER Geo] FAIL, Error: ${e.message}`);
+                            throw e;
+                        });
+                        if (!tigerRes.ok) throw new Error("TIGER geometry fetch failed");
+                        tigerGeo = await tigerRes.json();
+                        console.log(">>> STAGE: AFTER TIGER parse");
+                    } catch (e) {
+                        console.error("[PHASE FAIL] TIGER Geometry", e);
+                        throw e;
+                    }
+
+                    // 3. Fetch Business Data (Paginated)
+                    let bizGeo;
+                    try {
+                        console.log(">>> STAGE: BEFORE fetchBizData call");
+                        bizGeo = await fetchBizData();
+                        console.log(">>> STAGE: AFTER fetchBizData returns");
+                    } catch (e) {
+                        console.error("[PHASE FAIL] Business Data Loop", e);
+                        throw e;
+                    }
+
+                    // 3.5 Fetch and Parse Transit Data
+                    let stopsText, serviceText;
+                    try {
+                        console.log(">>> STAGE: BEFORE stops.csv fetch");
+                        const stopsRes = await fetch('stops.csv').then(r => {
+                            console.log(`[Local stops.csv] Success: ${r.ok}, Status: ${r.status}`);
+                            return r;
+                        }).catch(e => {
+                            console.error(`[Local stops.csv] FAIL, Error: ${e.message}`);
+                            throw e;
+                        });
+                        stopsText = await stopsRes.text();
+                        console.log(">>> STAGE: AFTER stops.csv parse");
+
+                        console.log(">>> STAGE: BEFORE stop_service.csv fetch");
+                        const serviceRes = await fetch('stop_service.csv').then(r => {
+                            console.log(`[Local stop_service.csv] Success: ${r.ok}, Status: ${r.status}`);
+                            return r;
+                        }).catch(e => {
+                            console.error(`[Local stop_service.csv] FAIL, Error: ${e.message}`);
+                            throw e;
+                        });
+                        serviceText = await serviceRes.text();
+                        console.log(">>> STAGE: AFTER stop_service.csv parse");
+                    } catch (e) {
+                        console.error("[PHASE FAIL] Local CSV Sequential", e);
+                        throw e;
+                    }
+                    
+                    const serviceMap = new Map();
+                    serviceText.split('\n').slice(1).forEach(line => {
+                        const [id, count] = line.split(',');
+                        if (id) serviceMap.set(id.trim(), parseFloat(count) || 0);
+                    });
+
+                    const stopsLines = stopsText.split('\n').slice(1).filter(l => l.trim());
+                    const stopsGeo = {
+                        type: "FeatureCollection",
+                        features: stopsLines.map(line => {
+                            const [id, name, lat, lon] = line.split(',');
+                            const stopId = id.trim();
+                            return {
+                                type: "Feature",
+                                geometry: { type: "Point", coordinates: [parseFloat(lon), parseFloat(lat)] },
+                                properties: { id: stopId, name, serviceCount: serviceMap.get(stopId) || 0 }
+                            };
+                        })
+                    };
+
+                    // 4. Process
+                    const demoMap = new Map();
+                    acsJson.slice(1).forEach(r => {
+                        const income = parseFloat(r[1]);
+                        const age = parseFloat(r[2]);
+                        const pop = parseInt(r[3]);
+                        const total25 = parseFloat(r[4]);
+                        const bach = parseFloat(r[5]);
+                        
+                        // Census uses specific negative values (e.g., -666666666) as flags for missing or suppressed data.
+                        // We treat these as 0 to avoid skewing the normalization and demand scores for the entire city.
+                        const validIncome = income > 0 ? income : 0;
+                        const validAge = age > 0 ? age : 0;
+                        const validPop = pop > 0 ? pop : 0;
+                        const validTotal25 = total25 > 0 ? total25 : 0;
+                        const validBach = bach > 0 ? bach : 0;
+
+                        const bachPct = validTotal25 > 0 ? (validBach / validTotal25) * 100 : 0;
+                        demoMap.set(`${r[6]}${r[7]}${r[8]}`, { 
+                            income: validIncome, 
+                            age: validAge, 
+                            pop: validPop,
+                            bachelors: bachPct
+                        });
+                    });
+
+                    const rawValues = tigerGeo.features.map(f => {
+                        const d = demoMap.get(f.properties.GEOID) || { income: 0, pop: 0, age: 0, bachelors: 0 };
+                        const ptsInTract = turf.pointsWithinPolygon(bizGeo, f);
+                        const bizCount = ptsInTract.features.length;
+                        
+                        const bufferedTract = turf.buffer(f, 0.1, { units: 'kilometers' });
+                        const stopsInTract = turf.pointsWithinPolygon(stopsGeo, bufferedTract);
+                        const transitStopsNearby = stopsInTract.features.length;
+                        const transitServiceIntensity = stopsInTract.features.reduce((sum, s) => sum + (s.properties.serviceCount || 0), 0);
+
+                        const area = turf.area(f) / 1000000;
+                        const bizDensity = area > 0 ? bizCount / area : 0;
+                        return { ...f.properties, ...d, bizCount, bizDensity, area, transitStopsNearby, transitServiceIntensity };
+                    });
+
+                    const incomes = rawValues.map(v => v.income).filter(v => !isNaN(v));
+                    const maxIncome = Math.max(...incomes, 0);
+                    const minIncome = Math.min(...incomes, 0);
+                    
+                    const pops = rawValues.map(v => v.pop).filter(v => !isNaN(v));
+                    const maxPop = Math.max(...pops, 0);
+                    const minPop = Math.min(...pops, 0);
+                    
+                    const densities = rawValues.map(v => v.bizDensity).filter(v => !isNaN(v));
+                    const maxDens = Math.max(...densities, 0);
+                    const minDens = Math.min(...densities, 0);
+
+                    const intensities = rawValues.map(v => v.transitServiceIntensity).filter(v => !isNaN(v));
+                    const maxInt = Math.max(...intensities, 0) || 1;
+                    const minInt = Math.min(...intensities, 0);
+
+                    const stopsNearby = rawValues.map(v => v.transitStopsNearby).filter(v => !isNaN(v));
+                    const maxStops = Math.max(...stopsNearby, 0) || 1;
+                    const minStops = Math.min(...stopsNearby, 0);
+
+                    const ages = rawValues.map(v => v.age).filter(v => v > 0);
+                    const maxAge = Math.max(...ages, 0) || 1;
+                    const minAge = Math.min(...ages, 0);
+
+                    const areas = rawValues.map(v => v.area).filter(v => v > 0);
+                    const maxArea = Math.max(...areas, 0) || 1;
+                    const minArea = Math.min(...areas, 0);
+
+                    const contextData = { maxIncome, minIncome, maxPop, minPop, maxDens, minDens, maxInt, minInt, maxStops, minStops, maxAge, minAge, maxArea, minArea };
+
+                    tigerGeo.features = tigerGeo.features.map((f, i) => {
+                        const v = rawValues[i];
+                        const normInc = normalize(v.income, minIncome, maxIncome);
+                        const normPop = normalize(v.pop, minPop, maxPop);
+                        const normDens = normalize(v.bizDensity, minDens, maxDens);
+                        const normInt = normalize(v.transitServiceIntensity, minInt, maxInt);
+                        const normStopsVal = normalize(v.transitStopsNearby, minStops, maxStops);
+                        
+                        const demand = (0.5 * normPop) + (0.5 * normInc);
+                        const gap = demand * (1 - normDens);
+                        const attractiveness = (0.6 * normDens) + (0.4 * demand);
+                        
+                        const tas = (0.4 * normStopsVal) + (0.6 * normInt);
+                        const zoningCompatibility = 1.0; 
+                        const readiness = (0.6 * gap) + (0.2 * normInt) + (0.2 * zoningCompatibility);
+
+                        // Archetype Logic
+                        let archetype = "Mixed / unclassified tract";
+                        if (normDens > 0.6) archetype = "Saturated destination hub";
+                        else if (normDens < 0.4 && demand > 0.4 && tas > 0.6) archetype = "Under-served connected tract";
+                        else if (normDens < 0.4 && tas < 0.3) archetype = "Under-served suburban / low-transit";
+                        else if (normDens >= 0.4 && normDens <= 0.6) archetype = "Balanced mid-tier tract";
+
+                        f.properties = {
+                            ...v,
+                            normPop,
+                            normInc,
+                            normBizDensity: normDens,
+                            normIntensity: normInt,
+                            normStops: normStopsVal,
+                            demandScore: demand.toFixed(3),
+                            competitionGap: gap.toFixed(3),
+                            opportunityScore: gap.toFixed(3),
+                            attractivenessScore: attractiveness.toFixed(3),
+                            zoningCompatibility: zoningCompatibility.toFixed(1),
+                            businessReadinessScore: readiness.toFixed(3),
+                            transitAccessScore: tas.toFixed(3),
+                            archetype,
+                            standardized_indicators: buildTractIndicatorProfile({ 
+                                ...v, 
+                                demandScore: demand.toFixed(3), 
+                                transitAccessScore: tas.toFixed(3), 
+                                normBizDensity: normDens, 
+                                normInc: normInc 
+                            }, contextData)
+                        };
+                        return f;
+                    });
+
+                    setCityData(contextData);
+                    setGeoJsonData(tigerGeo);
+                    setLoading(false);
+                } catch (err) {
+                    console.error(err);
+                    setError(err.message);
+                    setLoading(false);
+                }
+            };
+
+            const renderMap = (data) => {
+                if (!mapRef.current) return;
+                if (geoJsonLayerRef.current) mapRef.current.removeLayer(geoJsonLayerRef.current);
+
+                geoJsonLayerRef.current = L.geoJson(data, {
+                    style: (f) => ({
+                        fillColor: getColor(f.properties.opportunityScore, 'opportunity'),
+                        weight: 1.5, color: 'white', fillOpacity: 0.8
+                    }),
+                    onEachFeature: (f, layer) => {
+                        layer.on('click', () => setSelectedTract(f.properties));
+                        layer.bindPopup(() => {
+                            const p = f.properties;
+                            const currentModeLabel = viewModeRef.current === 'income' ? 'Spending Power' : 'Underserved Demand';
+                            
+                            const techHelp = (content) => `<span class="inline-flex items-center justify-center w-3.5 h-3.5 ml-1 text-[8px] font-bold text-slate-300 border border-slate-200 rounded-full cursor-help hover:bg-slate-100 hover:text-indigo-500" title="Technical Details: ${content}">i</span>`;
+                            const bizHelp = (meaning) => `title="Business Meaning: ${meaning}" class="cursor-help border-b border-dotted border-slate-300 pb-0.5"`;
+
+                            return `
+                                <div class="p-4 space-y-4">
+                                    <div class="border-b border-slate-100 pb-2">
+                                        <b class="text-slate-800 text-sm block">Tract ${p.TRACT}</b>
+                                        <span class="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Primary view: ${currentModeLabel}</span>
+                                        <div class="mt-1 text-[10px] text-indigo-600 font-semibold italic">Tract reading: ${p.archetype}</div>
+                                    </div>
+                                    
+                                    <div class="space-y-3">
+                                        <div>
+                                            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 border-b border-slate-50 pb-1">A. Strategic Place Indicators</p>
+                                            <div class="space-y-1.5 text-[11px]">
+                                                <div class="flex justify-between items-center text-purple-900" ${bizHelp('Captures the unrealized potential of a place — where the city still appears able to absorb new activity by revealing remaining room for growth under the current model.')}>
+                                                    <span class="text-slate-600">Opportunity Score</span>
+                                                    <div class="flex items-center">
+                                                        <span class="font-bold bg-purple-50 px-1.5 py-0.5 rounded">${p.opportunityScore}</span>
+                                                        ${techHelp('Gap = Demand * (1 - Presence). Identical to Competition Gap at this stage.')}
+                                                    </div>
+                                                </div>
+                                                <div class="flex justify-between items-center text-indigo-900" ${bizHelp('Expresses the capacity of a place to transform existing city energy into new opportunity — by joining and amplifying a living ecosystem.')}>
+                                                    <span class="text-slate-700 font-medium">Attractiveness Score</span>
+                                                    <div class="flex items-center">
+                                                        <span class="font-bold bg-indigo-50 px-1.5 py-0.5 rounded">${p.attractivenessScore}</span>
+                                                        ${techHelp('Weighted: 0.6*Presence + 0.4*Demand logic. Traditional commercial strength indicators.')}
+                                                    </div>
+                                                </div>
+                                                <div class="flex justify-between items-center text-slate-900" ${bizHelp('Expresses how prepared a place appears to receive business activity in practical terms — as an environment where implementation may be more immediately realistic.')}>
+                                                    <span class="text-slate-700">Business Readiness Score</span>
+                                                    <div class="flex items-center">
+                                                        <span class="font-bold bg-slate-100 px-1.5 py-0.5 rounded">${p.businessReadinessScore}</span>
+                                                        ${techHelp('Formula: 0.6*Opp + 0.2*Transit + 0.2*Zoning. Zoning is city-wide placeholder 1.0.')}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="pt-1">
+                                            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 border-b border-slate-50 pb-1">Additional Context</p>
+                                            <div class="space-y-1.5 text-[11px]">
+                                                <div class="flex justify-between items-center">
+                                                    <span class="text-slate-600">Customer Potential</span>
+                                                    <div class="flex items-center">
+                                                        <span class="font-bold text-blue-600">${p.demandScore}</span>
+                                                    </div>
+                                                </div>
+                                                <div class="flex justify-between items-center">
+                                                    <span class="text-slate-600">Rel. Business Presence</span>
+                                                    <div class="flex items-center">
+                                                        <span class="font-bold text-slate-800">${((p.normBizDensity || 0) * 100).toFixed(1)}%</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="space-y-2 border-t border-slate-100 pt-2">
+                                        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Accessibility</p>
+                                        <div class="space-y-1.5 text-[11px]">
+                                            <div class="flex justify-between items-center">
+                                                <span class="text-slate-600" ${bizHelp('Availability and frequency of public transit')}>Transit Access Score</span>
+                                                <div class="flex items-center">
+                                                    <span class="font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">${p.transitAccessScore}</span>
+                                                    ${techHelp('0.4*StopsNearby + 0.6*ServiceIntensity. Public connectivity experimental layer.')}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    ${p.fit_summary ? `
+                                    <div class="space-y-2 border-t border-indigo-100 pt-3 bg-indigo-50/30 -mx-4 px-4 pb-3 mt-1">
+                                        <p class="text-[10px] font-black text-indigo-400 uppercase tracking-widest flex justify-between items-center">
+                                            <span ${bizHelp('Expresses how well the place and the project appear to belong together, according to the current business-fit model.')}>B. Project-Specific Fit (Match Score)</span>
+                                            <span class="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded text-[9px]">${(p.fit_summary.total_fit_score * 100).toFixed(0)}% Match</span>
+                                        </p>
+                                        <div class="space-y-1">
+                                            <div class="flex flex-wrap gap-1 mt-1">
+                                                ${p.fit_summary.strongest_matches.map(m => `<span class="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold uppercase tracking-tighter">✓ ${m}</span>`).join('')}
+                                            </div>
+                                            ${p.fit_summary.weak_matches.length > 0 ? `
+                                            <div class="flex flex-wrap gap-1 mt-0.5">
+                                                ${p.fit_summary.weak_matches.map(m => `<span class="text-[9px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-medium border border-amber-100 italic capitalize">Optimization: ${m}</span>`).join('')}
+                                            </div>
+                                            ` : ''}
+                                            <div class="pt-2 mt-2 border-t border-indigo-100/50 space-y-1">
+                                                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">C. Transparency Indicators</p>
+                                                <div class="flex justify-between items-center opacity-85">
+                                                    <div class="flex items-center gap-1" ${bizHelp('Indicates how strongly the result is grounded in the current analytical basis, distinguishing direct support from heavier reliance on proxies.')}>
+                                                        <span class="text-[9px] font-bold text-indigo-500 uppercase">Analytical Confidence</span>
+                                                        <span class="text-[9px] font-black text-indigo-700">${(p.fit_summary.proxy_confidence_score * 100).toFixed(0)}%</span>
+                                                    </div>
+                                                    <div class="flex items-center gap-1" ${bizHelp('Indicates how complete the current analytical basis is for evaluating this specific business or service concept.')}>
+                                                        <span class="text-[9px] font-bold text-indigo-500 uppercase">Data Coverage</span>
+                                                        <span class="text-[9px] font-black text-indigo-700">${(p.fit_summary.data_completeness_score * 100).toFixed(0)}%</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    ` : ''}
+
+                                    <details class="group border-t border-slate-100 pt-2">
+                                        <summary class="list-none cursor-pointer text-[10px] font-bold text-slate-500 hover:text-slate-800 flex items-center justify-between py-1">
+                                            <span>Show underlying data</span>
+                                            <span class="text-[8px] transition-transform group-open:rotate-180">▼</span>
+                                        </summary>
+                                        <div class="mt-3 space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                                            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Market Data</p>
+                                            <div class="space-y-1.5 text-[11px]">
+                                                <div class="flex justify-between">
+                                                    <span class="text-slate-500">Population</span>
+                                                    <span class="font-bold text-slate-700">${(p.pop || 0).toLocaleString()}</span>
+                                                </div>
+                                                <div class="flex justify-between">
+                                                    <span class="text-slate-500">Median Income</span>
+                                                    <span class="font-bold text-slate-700">$${(p.income || 0).toLocaleString()}</span>
+                                                </div>
+                                                <div class="flex justify-between">
+                                                    <span class="text-slate-500">Median Age</span>
+                                                    <span class="font-bold text-slate-700">${p.age || 'N/A'}</span>
+                                                </div>
+                                                <div class="flex justify-between">
+                                                    <span class="text-slate-500">Bachelors degree holders</span>
+                                                    <span class="font-bold text-slate-700">${(parseFloat(p.bachelors) || 0).toFixed(1)}%</span>
+                                                </div>
+                                                <div class="flex justify-between">
+                                                    <span class="text-slate-500">Business Count</span>
+                                                    <span class="font-bold text-slate-700">${p.bizCount}</span>
+                                                </div>
+                                            </div>
+                                            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2 border-t pt-2">Public Accessibility</p>
+                                            <div class="space-y-1.5 text-[11px]">
+                                                <div class="flex justify-between">
+                                                    <span class="text-slate-500">Stops Nearby</span>
+                                                    <span class="font-bold text-slate-700">${p.transitStopsNearby || 0}</span>
+                                                </div>
+                                                <div class="flex justify-between">
+                                                    <span class="text-slate-500">Service Intensity</span>
+                                                    <span class="font-bold text-slate-700">${(p.transitServiceIntensity || 0).toLocaleString()}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </details>
+                                </div>
+                            `;
+                        }, { className: 'custom-popup', maxWidth: 300 });
+                    }
+                }).addTo(mapRef.current);
+            };
+
+            useEffect(() => {
+                mapRef.current = L.map('map', { zoomControl: false }).setView([32.3668, -86.3000], 11);
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+                    attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+                }).addTo(mapRef.current);
+                fetchAndProcessData();
+                return () => mapRef.current.remove();
+            }, []);
+
+            useEffect(() => {
+                if (!geoJsonData) return;
+                
+                // Deep clone to avoid direct property mutation of base data
+                const updatedGeo = JSON.parse(JSON.stringify(geoJsonData));
+                
+                updatedGeo.features = updatedGeo.features.map(f => {
+                    const p = f.properties;
+                    f.properties.fit_summary = computeTractFit(interpretedIntent, p.standardized_indicators, mappingConfig);
+                    return f;
+                });
+                
+				if (interpretedIntent) {
+					const ranked = updatedGeo.features
+						.filter(f => f.properties.fit_summary && f.properties.fit_summary.total_fit_score > 0)
+						.sort((a, b) => b.properties.fit_summary.total_fit_score - a.properties.fit_summary.total_fit_score)
+						.slice(0, 3)
+						.map(f => ({
+							tract: f.properties.TRACT,
+							geoid: f.properties.GEOID,
+							score: f.properties.fit_summary.total_fit_score,
+							archetype: f.properties.archetype,
+							strongest: f.properties.fit_summary.strongest_matches,
+							income: f.properties.income,
+							family_area: f.properties.standardized_indicators?.family_proxy || 0
+						}));
+					setTopMatches(ranked);
+				}
+                renderMap(updatedGeo);
+                
+                // Update selected tract context if a tract is currently selected
+                if (selectedTract) {
+                    const match = updatedGeo.features.find(f => f.properties.GEOID === selectedTract.GEOID);
+                    if (match) setSelectedTract(match.properties);
+                }
+            }, [geoJsonData, interpretedIntent, mappingConfig]);
+
+            useEffect(() => {
+                if (geoJsonLayerRef.current) {
+                    geoJsonLayerRef.current.eachLayer((layer) => {
+                        const props = layer.feature.properties;
+                        const val = viewMode === 'income' ? props.income : props.opportunityScore;
+                        layer.setStyle({ fillColor: getColor(val, viewMode) });
+                    });
+                }
+            }, [viewMode]);
+
+            return (
+                <div className="relative w-full h-screen overflow-hidden flex flex-col md:flex-row">
+                    {/* Navigation */}
+                    <div className="absolute top-4 right-4 z-[1000] flex gap-2">
+                        <button onClick={() => setUiMode('intent')} className={`px-4 py-2 rounded-full text-xs font-bold shadow-lg transition ${uiMode === 'intent' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600'}`}>INTENT</button>
+                        <button onClick={() => setUiMode('map')} className={`px-4 py-2 rounded-full text-xs font-bold shadow-lg transition ${uiMode === 'map' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600'}`}>MAP</button>
+                        <button onClick={() => setUiMode('report')} className={`px-4 py-2 rounded-full text-xs font-bold shadow-lg transition ${uiMode === 'report' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600'}`}>REPORT</button>
+                    </div>
+
+                    {/* INTENT SCREEN */}
+                    <div className={`flex-1 bg-slate-50 overflow-y-auto p-8 pt-20 ${uiMode === 'intent' ? '' : 'hidden'}`}>
+                        <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
+                            {/* Input Panel */}
+                            <div className="space-y-6">
+                                <section className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                                    <h2 className="text-2xl font-black text-slate-800 mb-2 uppercase tracking-tight">Investor Input</h2>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase mb-6 tracking-widest">Phase A Deterministic Backbone</p>
+                                    
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Business Description</label>
+                                            <textarea 
+                                                value={investorDescription}
+                                                onChange={(e) => setInvestorDescription(e.target.value)}
+                                                placeholder="e.g. I want to open a small independent coffee shop with some bakery items."
+                                                className="w-full h-32 p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-slate-900 outline-none transition"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Investor Priorities (Comma separated)</label>
+                                            <input 
+                                                type="text"
+                                                value={investorPriorities}
+                                                onChange={(e) => setInvestorPriorities(e.target.value)}
+                                                placeholder="e.g. high_visibility, low_competition, parking"
+                                                className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-slate-900 outline-none transition"
+                                            />
+                                        </div>
+										{!apiKeySubmitted && (
+											<div className="space-y-2">
+												<label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Gemini API Key</label>
+												<input
+													type="password"
+													value={geminiApiKey}
+													onChange={(e) => { setGeminiApiKey(e.target.value); setKeyConfirmed(false); }}
+													placeholder="Paste your Gemini API key here"
+													className="w-full p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-400 outline-none transition font-mono"
+												/>
+												<button
+													onClick={confirmApiKey}
+													disabled={!geminiApiKey.trim()}
+													className={`w-full py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition ${!geminiApiKey.trim() ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : keyConfirmed ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white hover:bg-amber-600'}`}>
+													{keyConfirmed ? '✓ Key Confirmed' : 'Confirm API Key'}
+												</button>
+												<p className="text-[9px] text-slate-400 leading-tight">Key is used only in this session and never stored or transmitted elsewhere. Leave blank to run in mock mode.</p>
+											</div>
+										)}
+										{apiKeySubmitted && (
+											<div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-100 rounded-xl">
+												<span className="text-emerald-500 text-xs">●</span>
+												<span className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">AI Interpreter Active</span>
+												<button onClick={() => { setApiKeySubmitted(false); setGeminiApiKey(''); }} className="ml-auto text-[9px] text-slate-400 hover:text-slate-600 underline">Reset</button>
+											</div>
+										)}
+                                        <button 
+                                            onClick={runInterpreter}
+                                            disabled={!investorDescription || isInterpreting}
+                                            className={`w-full py-4 rounded-xl font-black text-xs uppercase tracking-widest transition ${!investorDescription || isInterpreting ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-900 text-white hover:bg-slate-800 shadow-lg'}`}>
+                                            {isInterpreting ? 'Interpreting...' : 'Read Investor Intent'}
+                                        </button>
+                                    </div>
+                                </section>
+
+                                <section className="bg-slate-900 p-8 rounded-3xl shadow-xl text-white">
+                                    <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Prototype Guidance</h3>
+                                    <div className="space-y-3 text-xs leading-relaxed text-slate-300">
+                                        <p><b className="text-white">Deterministic Trigger:</b> Try keywords like <span className="italic text-indigo-300">"coffee"</span>, <span className="italic text-indigo-300">"office"</span>, or <span className="italic text-indigo-300">"clothing"</span> to see categorized mapping.</p>
+                                        <p><b className="text-white">Ambiguity Test:</b> Write a very short sentence to trigger a clarification question.</p>
+                                    </div>
+                                </section>
+                            </div>
+
+                            {/* Result Panel */}
+                            <div className="space-y-6">
+                                {!interpretedIntent ? (
+                                    <div className="h-full min-h-[400px] bg-slate-100/50 border-2 border-dashed border-slate-200 rounded-3xl flex flex-col items-center justify-center p-8 text-center">
+                                        <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center mb-4 shadow-sm">
+                                            <span className="text-slate-300 text-xl">⚡</span>
+                                        </div>
+                                        <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Awaiting Intent Translation</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-6">
+                                        <section className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 animate-in fade-in slide-in-from-right-4 duration-300">
+                                            <div className="flex justify-between items-start mb-6">
+                                                <div>
+                                                    <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Interpreted Profile</h2>
+                                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{interpretedIntent.canonical_label}</p>
+                                                </div>
+                                                <div className="flex flex-col items-end">
+                                                    <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${interpretedIntent.confidence > 0.7 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                                        Confidence: {(interpretedIntent.confidence * 100).toFixed(0)}%
+                                                    </div>
+                                                    <p className="text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-tighter">Ambiguity: {interpretedIntent.ambiguity_level.toUpperCase()}</p>
+                                                </div>
+                                            </div>
+
+                                            <div className="space-y-6">
+                                                <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-2xl">
+                                                    <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">Reasoning Summary</p>
+                                                    <p className="text-xs font-medium text-indigo-900 leading-relaxed">{interpretedIntent.reasoning_summary}</p>
+                                                </div>
+
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 italic">
+                                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Customer Mode</p>
+                                                        <p className="text-xs font-bold text-slate-700">{interpretedIntent.customer_mode.replace(/_/g, ' ')}</p>
+                                                    </div>
+                                                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 italic">
+                                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Space Profile</p>
+                                                        <p className="text-xs font-bold text-slate-700">{interpretedIntent.space_profile.replace(/_/g, ' ')}</p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                                                    <div className="flex justify-between items-center mb-1">
+                                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Primary Business Family</p>
+                                                        {interpretedIntent.secondary_family_id && (
+                                                            <span className="text-[9px] font-black text-indigo-500 uppercase">Sec: {interpretedIntent.secondary_family_id}</span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-lg font-black text-slate-800">
+                                                        {businessFamilies.find(f => f.id === interpretedIntent.business_family_id)?.label || interpretedIntent.business_family_id}
+                                                    </p>
+                                                    <div className="mt-2 flex flex-wrap gap-1">
+                                                        {businessFamilies.find(f => f.id === interpretedIntent.business_family_id)?.examples.map(ex => (
+                                                            <span key={ex} className="text-[9px] bg-white border border-slate-200 px-1.5 py-0.5 rounded text-slate-500">{ex}</span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                    <div>
+                                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Location Needs</p>
+                                                        <div className="space-y-2">
+                                                            {Object.entries(interpretedIntent.location_needs).filter(([, v]) => v > 0).map(([k, v]) => (
+                                                                <div key={k} className="flex flex-col">
+                                                                    <div className="flex justify-between text-[10px] font-bold mb-1">
+                                                                        <span className="text-slate-500 uppercase">{k.replace(/_/g, ' ')}</span>
+                                                                        <span className="text-slate-800">{(v * 100).toFixed(0)}%</span>
+                                                                    </div>
+                                                                    <div className="w-full bg-slate-100 h-1 rounded-full overflow-hidden">
+                                                                        <div className="bg-indigo-500 h-full" style={{width: `${v * 100}%`}}></div>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Activity Profile</p>
+                                                        <div className="space-y-2">
+                                                            {Object.entries(interpretedIntent.activity_profile).map(([k, v]) => (
+                                                                <div key={k} className="flex flex-col">
+                                                                    <div className="flex justify-between text-[10px] font-bold mb-1">
+                                                                        <span className="text-slate-500 uppercase">{k.replace(/_/g, ' ')}</span>
+                                                                        <span className="text-slate-800">{(v * 100).toFixed(0)}%</span>
+                                                                    </div>
+                                                                    <div className="w-full bg-slate-100 h-1 rounded-full overflow-hidden">
+                                                                        <div className="bg-emerald-500 h-full" style={{width: `${v * 100}%`}}></div>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    <div>
+                                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Internal Flags</p>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {Object.entries(interpretedIntent.detected_flags).filter(([, v]) => v).map(([k]) => (
+                                                                <span key={k} className="px-2 py-1 bg-red-50 text-red-600 rounded text-[10px] font-bold uppercase tracking-tight">{k.replace(/_/g, ' ')}</span>
+                                                            ))}
+                                                            {Object.values(interpretedIntent.detected_flags).every(v => !v) && <span className="text-[10px] text-slate-300 italic">No sensitive flags identified</span>}
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Interpretation Notes</p>
+                                                        <div className="space-y-1">
+                                                            {interpretedIntent.interpretation_notes.map((note, i) => (
+                                                                <p key={i} className="text-[10px] text-slate-500 leading-tight">• {note}</p>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div>
+                                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Zoning Candidates</p>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {interpretedIntent.zoning_candidate_families.map(z => (
+                                                            <span key={z} className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[10px] font-black">{z}</span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+
+                                                {interpretedIntent.clarification_question && (
+                                                    <div className="p-6 bg-amber-50 rounded-2xl border border-amber-100 space-y-4">
+                                                        <div>
+                                                            <p className="text-[10px] font-black text-amber-800 uppercase tracking-widest mb-1">Clarification Requested</p>
+                                                            <p className="text-sm text-amber-900 font-medium leading-relaxed italic">"{interpretedIntent.clarification_question}"</p>
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            <textarea 
+                                                                value={clarificationResponse}
+                                                                onChange={(e) => setClarificationResponse(e.target.value)}
+                                                                placeholder="Type your response here..."
+                                                                className="w-full p-3 bg-white border border-amber-200 rounded-xl text-xs focus:ring-2 focus:ring-amber-500 outline-none transition"
+                                                                rows="2"
+                                                            />
+                                                            <button 
+                                                                onClick={runInterpreter}
+                                                                disabled={!clarificationResponse || isInterpreting}
+                                                                className="w-full py-2 bg-amber-600 text-white rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-amber-700 transition disabled:opacity-50"
+                                                            >
+                                                                {isInterpreting ? 'Processing...' : 'Submit Clarification'}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+												{topMatches.length > 0 && (
+													<div className="p-6 bg-slate-900 rounded-2xl space-y-4">
+														<div className="flex justify-between items-center">
+															<p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Top 3 Recommended Locations</p>
+															<span className="text-[9px] text-slate-500 italic">Based on business intent match</span>
+														</div>
+														<div className="space-y-3">
+															{topMatches.map((m, i) => (
+																<div key={m.geoid} className="bg-slate-800 rounded-xl p-4 space-y-2">
+																	<div className="flex justify-between items-center">
+																		<div className="flex items-center gap-2">
+																			<span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[9px] font-black flex items-center justify-center">{i+1}</span>
+																			<span className="text-white font-black text-sm">Tract {m.tract}</span>
+																		</div>
+																		<span className="bg-indigo-500 text-white px-2 py-0.5 rounded-full text-[10px] font-black">{(m.score * 100).toFixed(0)}% match</span>
+																	</div>
+																	<p className="text-[10px] text-indigo-300 italic">{m.archetype}</p>
+																	<div className="flex flex-wrap gap-1">
+																		{m.strongest.map(s => (
+																			<span key={s} className="text-[9px] bg-emerald-900/50 text-emerald-300 px-1.5 py-0.5 rounded font-bold uppercase">✓ {s}</span>
+																		))}
+																	</div>
+																	<button
+																		onClick={() => { setSelectedTract(null); setUiMode('map'); }}
+																		className="w-full py-1.5 bg-slate-700 hover:bg-indigo-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest transition">
+																		Show on Map
+																	</button>
+																</div>
+															))}
+														</div>
+														<button 
+															onClick={() => setUiMode('map')}
+															className="w-full py-3 bg-white text-slate-900 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-100 transition">
+															Explore Full Montgomery Map
+														</button>
+													</div>
+												)}
+												{topMatches.length === 0 && (
+													<div className="pt-6 border-t border-slate-100">
+														<button 
+															onClick={() => setUiMode('map')}
+															className="w-full py-4 bg-slate-900 text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-800 shadow-lg transition">
+															Explore Montgomery Map
+														</button>
+													</div>
+												)}
+												
+                                            </div>
+                                        </section>
+                                        
+                                        <section className="bg-slate-900 p-6 rounded-3xl shadow-xl text-white">
+                                            <div className="flex justify-between items-center mb-4">
+                                                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Business Requirements Summary</h3>
+                                                {interpretedIntent.needs_confirmation && (
+                                                    <span className="px-2 py-0.5 bg-amber-500 text-[9px] font-black rounded uppercase">Refinement Needed</span>
+                                                )}
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-6 mb-6">
+                                                <div className="space-y-3">
+                                                    <div>
+                                                        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter">Operational Profile</p>
+                                                        <p className="text-sm font-black">{interpretedIntent.customer_mode.split('_').join(' ')} &bull; {interpretedIntent.space_profile.split('_').join(' ')}</p>
+                                                        {interpretedIntent.detected_flags.hybrid_concept && <p className="text-[9px] text-indigo-400 font-bold uppercase mt-0.5">Dual-Nature Logic Active</p>}
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter">Top Location Priorities</p>
+                                                        <div className="flex flex-wrap gap-1.5 mt-1">
+                                                            {Object.entries(interpretedIntent.location_needs)
+                                                                .sort(([, a], [, b]) => b - a)
+                                                                .slice(0, 3)
+                                                                .filter(([, v]) => v > 0)
+                                                                .map(([k]) => (
+                                                                    <span key={k} className="px-2 py-0.5 bg-slate-800 border border-slate-700 rounded text-[9px] font-bold uppercase">{k.replace(/_/g, ' ')}</span>
+                                                                ))}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-3">
+                                                    <div>
+                                                        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter">Sensitivity Flags</p>
+                                                        <div className="flex flex-wrap gap-1 mt-1">
+                                                            {Object.entries(interpretedIntent.detected_flags).filter(([, v]) => v).map(([k]) => (
+                                                                <span key={k} className="px-1.5 py-0.5 bg-red-900/50 text-red-300 border border-red-800 rounded text-[8px] font-black uppercase">{k.replace(/_/g, ' ')}</span>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter">Clarification Status</p>
+                                                        <p className="text-[10px] text-slate-300">{interpretedIntent.clarification_question ? "Waiting for investor specificities." : "High deterministic alignment."}</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="p-4 bg-slate-800 rounded-2xl border border-slate-700">
+                                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Spatial Caution Notes (Deterministic)</p>
+                                                <ul className="space-y-1.5">
+                                                    {interpretedIntent.detected_flags.hybrid_concept && <li className="text-[10px] text-slate-300 leading-tight flex gap-2"><span className="text-indigo-400">/</span> Verify operational separation between secondary use and primary customer flow.</li>}
+                                                    {interpretedIntent.detected_flags.child_sensitive && <li className="text-[10px] text-slate-300 leading-tight flex gap-2"><span className="text-emerald-400">/</span> Pedestrian safety and drop-off accessibility are spatial priorities.</li>}
+                                                    {interpretedIntent.detected_flags.industrial_sensitive && <li className="text-[10px] text-slate-300 leading-tight flex gap-2"><span className="text-amber-400">/</span> Evaluate logistical buffering from heavy vehicles and noise.</li>}
+                                                    {interpretedIntent.detected_flags.medical_sensitive && <li className="text-[10px] text-slate-300 leading-tight flex gap-2"><span className="text-blue-400">/</span> Utility specifications should account for specialized clinic-like requirements.</li>}
+                                                    {(interpretedIntent.business_family_id.includes('food') || (interpretedIntent.secondary_family_id && interpretedIntent.secondary_family_id.includes('food'))) && <li className="text-[10px] text-slate-300 leading-tight flex gap-2"><span className="text-rose-400">/</span> Spatial layout should account for kitchen extraction and hygiene separation.</li>}
+                                                    <li className="text-[10px] text-slate-500 leading-tight pt-1 italic">Notes derived from detected operational profile.</li>
+                                                </ul>
+                                            </div>
+                                        </section>
+
+                                        <section className="bg-slate-50 p-6 rounded-2xl border border-slate-100 overflow-hidden">
+                                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Structured Schema Inspector</p>
+                                            <pre className="text-[10px] bg-white p-4 rounded-lg overflow-x-auto text-slate-600 whitespace-pre-wrap font-mono border">
+                                                {JSON.stringify(interpretedIntent, null, 2)}
+                                            </pre>
+                                        </section>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className={`flex-1 flex relative ${uiMode === 'map' ? '' : 'hidden'}`}>
+                        <div className="absolute top-4 left-4 z-[1000] bg-white/95 p-5 rounded-2xl shadow-2xl border border-slate-200 w-72">
+                            <h1 className="font-black text-slate-800 text-xl tracking-tight">Business Companion</h1>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase mb-4 tracking-widest">Montgomery Explorer</p>
+                            
+                            <div className="bg-slate-50 p-1 rounded-lg flex mb-2 border">
+                                <button 
+                                    onClick={() => setViewMode('opportunity')}
+                                    className={`flex-1 text-[10px] py-1.5 rounded-md font-bold transition ${viewMode === 'opportunity' ? 'bg-white shadow text-purple-700' : 'text-slate-400'}`}>
+                                    UNDERSERVED DEMAND
+                                </button>
+                                <button 
+                                    onClick={() => setViewMode('income')}
+                                    className={`flex-1 text-[10px] py-1.5 rounded-md font-bold transition ${viewMode === 'income' ? 'bg-white shadow text-emerald-700' : 'text-slate-400'}`}>
+                                    SPENDING POWER
+                                </button>
+                            </div>
+
+                            <p className="text-[11px] text-slate-500 italic mb-4 leading-tight">
+                                {viewMode === 'income' ? 'Where people have strong purchasing capacity' : 'Where demand is high but competition is limited'}
+                            </p>
+
+                            <div className="space-y-2">
+                                <p className="text-[10px] font-black text-slate-400 uppercase">{viewMode === 'income' ? 'Spending Power' : 'Opportunity Score'}</p>
+                                {[0.8, 0.6, 0.4, 0.2, 0].map(val => (
+                                    <div key={val} className="flex items-center gap-3 text-[11px] font-medium text-slate-600">
+                                        <div className="w-3 h-3 rounded-sm shadow-sm" style={{background: getColor(viewMode === 'income' ? (val + 0.1) * 100000 : val + 0.1, viewMode)}}></div>
+                                        <span>{viewMode === 'income' ? `$${(val*100000).toLocaleString()}+` : (val + 0.2).toFixed(1)}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        <div id="map" className="flex-1 h-full w-full"></div>
+                    </div>
+
+                    <div className={`flex-1 bg-slate-50 overflow-y-auto p-8 pt-20 ${uiMode === 'report' ? '' : 'hidden'}`}>
+                        <div className="max-w-3xl mx-auto space-y-8">
+                                {!selectedTract ? (
+                                    <section className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                                        <h2 className="text-2xl font-black text-slate-800 mb-4 uppercase tracking-tight">City Overview: Montgomery, AL</h2>
+                                        <div className="prose prose-slate max-w-none text-sm leading-relaxed text-slate-600 space-y-4">
+                                            <p>This report provides a rule-based snapshot of the local market landscape based on integrated Census and transit data.</p>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="p-4 bg-slate-50 rounded-xl">
+                                                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Census Tracts</p>
+                                                    <p className="text-xl font-bold text-slate-800">65+</p>
+                                                </div>
+                                                <div className="p-4 bg-slate-50 rounded-xl">
+                                                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Data Recency</p>
+                                                    <p className="text-xl font-bold text-slate-800">ACS 2022 / GTFS 2026</p>
+                                                </div>
+                                            </div>
+                                            <p>Historical trends are currently unavailable. The platform focuses on cross-sectional analysis of underserved demand and public accessibility.</p>
+                                            <p className="italic text-slate-400">Select a tract on the map to generate a localized readiness report.</p>
+                                        </div>
+                                    </section>
+                                ) : (
+                                    <section className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 space-y-8">
+                                        <div className="border-b pb-6">
+                                            <div className="flex justify-between items-start mb-2">
+                                                <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tight leading-none">Tract {selectedTract.TRACT}</h2>
+                                                <span className="px-3 py-1 bg-indigo-100 text-indigo-700 text-[10px] font-black rounded-full uppercase tracking-widest">Localized Report</span>
+                                            </div>
+                                            <p className="text-indigo-600 font-bold italic text-lg">Current Outlook: {selectedTract.archetype}</p>
+                                        </div>
+                                        
+                                        <div className="space-y-8 text-sm text-slate-600">
+                                            <div>
+                                                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 pb-1 border-b">1. Market Persona</h3>
+                                                <p className="leading-relaxed">
+                                                    This tract exhibits features of a <b>{selectedTract.archetype.toLowerCase()}</b>. 
+                                                    {viewMode === 'income' 
+                                                        ? " Viewing through the Spending Power lens highlights this area's role as a supporting demographic purchasing-capacity hub rather than just a commercial destination." 
+                                                        : " The Underserved Demand view emphasizes the competitive vacuum and potential for new market entry."}
+                                                </p>
+                                            </div>
+
+                                            <div>
+                                                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 pb-1 border-b">2. Supporting Decision Logics (Family A)</h3>
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-2">
+                                                        <p className="text-[10px] font-black text-slate-400 uppercase mb-1 underline decoration-dotted decoration-slate-300" title="Captures the unrealized potential of a place — where the city still appears able to absorb new activity by revealing remaining room for growth under the current model.">Opportunity Score</p>
+                                                        <div className="flex items-baseline gap-2">
+                                                            <span className="text-2xl font-black text-purple-700">{selectedTract.opportunityScore}</span>
+                                                            <span className="text-[9px] text-slate-400 font-bold uppercase tracking-tight">Market Entry</span>
+                                                        </div>
+                                                        <p className="text-[11px] leading-tight text-slate-500">Unmet-demand signals based on Customer Potential vs existing Presence.</p>
+                                                    </div>
+                                                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-2">
+                                                        <p className="text-[10px] font-black text-slate-400 uppercase mb-1 underline decoration-dotted decoration-slate-300" title="Expresses the capacity of a place to transform existing city energy into new opportunity — by joining and amplifying a living ecosystem.">Attractiveness Score</p>
+                                                        <div className="flex items-baseline gap-2">
+                                                            <span className="text-2xl font-black text-emerald-700">{selectedTract.attractivenessScore}</span>
+                                                            <span className="text-[9px] text-slate-400 font-bold uppercase tracking-tight">Commercial Gravity</span>
+                                                        </div>
+                                                        <p className="text-[11px] leading-tight text-slate-500">Relative commercial attractiveness based on density hotspots and licensed activity.</p>
+                                                    </div>
+                                                    <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/50 space-y-2">
+                                                        <p className="text-[10px] font-black text-indigo-400 uppercase mb-1 italic underline decoration-dotted decoration-indigo-200" title="Expresses how prepared a place appears to receive business activity in practical terms — as an environment where implementation may be more immediately realistic.">Business Readiness Score</p>
+                                                        <div className="flex items-baseline gap-2">
+                                                            <span className="text-2xl font-black text-indigo-700">{selectedTract.businessReadinessScore}</span>
+                                                            <span className="text-[9px] text-indigo-400 font-bold uppercase italic tracking-tight">Practical Logic</span>
+                                                        </div>
+                                                        <p className="text-[11px] leading-tight text-indigo-600/70">Synthesis of market gap and current infrastructure / public connectivity.</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <p className="leading-relaxed font-medium text-slate-700 p-4 border-l-4 border-indigo-200 bg-white shadow-sm rounded-r-xl italic">
+                                                    {parseFloat(selectedTract.opportunityScore) > parseFloat(selectedTract.attractivenessScore)
+                                                        ? "Investor strategy should prioritize Gap Analysis. The high Opportunity Score suggests this area is underserved, making it a strong candidate for businesses aiming to capture unmet local demand."
+                                                        : "Investor strategy should prioritize ecosystem entry. The strong Attractiveness Score indicates an established destination hub where commercial activity is already self-reinforcing."}
+                                                </p>
+                                            </div>
+
+                                            {selectedTract.fit_summary && (
+                                                <div className="bg-indigo-50 border border-indigo-100 rounded-3xl p-6 space-y-4">
+                                                    <div className="flex justify-between items-center">
+                                                        <h3 className="text-xs font-black text-indigo-400 uppercase tracking-widest">3. Strategic Fit (Family B)</h3>
+                                                        <div className="bg-white border border-indigo-200 px-3 py-1 rounded-full flex items-center gap-2 shadow-sm" title="Expresses how well the place and the project appear to belong together, according to the current business-fit model.">
+                                                            <span className="text-[10px] font-black text-indigo-900 uppercase">Match Score</span>
+                                                            <span className="text-sm font-black text-indigo-600">{(selectedTract.fit_summary.total_fit_score * 100).toFixed(0)}%</span>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <div className="space-y-4">
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                            <div className="space-y-2">
+                                                                <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Strongest Alignments</p>
+                                                                <div className="flex flex-wrap gap-2">
+                                                                    {selectedTract.fit_summary.strongest_matches.map(m => (
+                                                                        <span key={m} className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-[10px] font-black uppercase tracking-tight">✓ {m}</span>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                            {selectedTract.fit_summary.weak_matches.length > 0 && (
+                                                                <div className="space-y-2">
+                                                                    <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Optimization Areas</p>
+                                                                    <div className="flex flex-wrap gap-2">
+                                                                        {selectedTract.fit_summary.weak_matches.map(m => (
+                                                                            <span key={m} className="px-3 py-1 bg-amber-100 text-amber-800 rounded-lg text-[10px] font-bold uppercase tracking-tight italic">Improve {m}</span>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        <div className="pt-4 mt-2 border-t border-indigo-100 space-y-3">
+                                                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest pb-1 border-b border-indigo-50 leading-none">4. Transparency Indicators (Family C)</h3>
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                                <div className="space-y-2">
+                                                                    <div className="flex items-center justify-between underline decoration-dotted decoration-indigo-200" title="Indicates how strongly the result is grounded in the current analytical basis, distinguishing direct support from heavier reliance on proxies.">
+                                                                        <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">Analytical Confidence</span>
+                                                                        <span className="text-xs font-black text-indigo-700">{(selectedTract.fit_summary.proxy_confidence_score * 100).toFixed(0)}%</span>
+                                                                    </div>
+                                                                    <div className="w-full bg-indigo-100 h-1 rounded-full overflow-hidden">
+                                                                        <div className="bg-indigo-500 h-full transition-all duration-500" style={{ width: `${selectedTract.fit_summary.proxy_confidence_score * 100}%` }}></div>
+                                                                    </div>
+                                                                    <p className="text-[9px] text-indigo-400 leading-tight italic">Result grounding vs. reliance on proxies.</p>
+                                                                </div>
+                                                                <div className="space-y-2">
+                                                                    <div className="flex items-center justify-between underline decoration-dotted decoration-indigo-200" title="Indicates how complete the current analytical basis is for evaluating this specific business or service concept.">
+                                                                        <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">Data Coverage</span>
+                                                                        <span className="text-xs font-black text-indigo-700">{(selectedTract.fit_summary.data_completeness_score * 100).toFixed(0)}%</span>
+                                                                    </div>
+                                                                    <div className="w-full bg-indigo-100 h-1 rounded-full overflow-hidden">
+                                                                        <div className="bg-indigo-500 h-full transition-all duration-500" style={{ width: `${selectedTract.fit_summary.data_completeness_score * 100}%` }}></div>
+                                                                    </div>
+                                                                    <p className="text-[9px] text-indigo-400 leading-tight italic">Indicator completeness for selected concept.</p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <p className="text-xs text-indigo-600 leading-relaxed italic border-t border-indigo-100 pt-3">
+                                                            This deterministic fit score is computed by comparing the interpreted investor business profile with localized census and transit indicators.
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            <div className="grid grid-cols-2 gap-8 py-6 border-y border-slate-100">
+                                                <div className="space-y-4">
+                                                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Market Profile</h3>
+                                                    <div className="space-y-2">
+                                                        <div className="flex justify-between text-xs">
+                                                            <span className="text-slate-500">Pop. Density (Norm)</span>
+                                                            <span className="font-bold">{(parseFloat(selectedTract.normPop)*100).toFixed(0)}%</span>
+                                                        </div>
+                                                        <div className="flex justify-between text-xs">
+                                                            <span className="text-slate-500">Median Income</span>
+                                                            <span className="font-bold">${parseInt(selectedTract.income).toLocaleString()}</span>
+                                                        </div>
+                                                        <div className="flex justify-between text-xs text-indigo-600 font-medium">
+                                                            <span>Median Age</span>
+                                                            <span className="font-bold">{selectedTract.age}</span>
+                                                        </div>
+                                                        <div className="flex justify-between text-xs text-indigo-600 font-medium">
+                                                            <span>Higher Education (Bachelors %)</span>
+                                                            <span className="font-bold">{(parseFloat(selectedTract.bachelors) || 0).toFixed(1)}%</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-4">
+                                                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status & Checks</h3>
+                                                    <div className="space-y-3">
+                                                        <div className="bg-amber-50 p-3 rounded-xl border border-amber-100">
+                                                            <p className="text-[10px] font-black text-amber-800 uppercase mb-1">Critical Caveat</p>
+                                                            <p className="text-[11px] text-amber-900 leading-tight">Business Readiness Score is experimental; zoning compatibility currently assumes a generic baseline without tract differentiation.</p>
+                                                        </div>
+                                                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                                            <p className="text-[10px] font-black text-slate-500 uppercase mb-1">Next Verification Steps</p>
+                                                            <ul className="text-[11px] text-slate-600 list-disc pl-3 leading-tight space-y-1">
+                                                                <li>Verify site-specific zoning ordinances</li>
+                                                                <li>Assess car-based catchment bottlenecks</li>
+                                                                <li>Validate specific niche local demand</li>
+                                                            </ul>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </section>
+                                )}
+                            </div>
+                        </div>
+
+                    {loading && (
+                        <div className="absolute inset-0 z-[2000] bg-white flex flex-col items-center justify-center">
+                            <div className="w-10 h-10 border-4 border-purple-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+                            <span className="font-black text-slate-700 uppercase tracking-widest text-xs">Loading Data...</span>
+                        </div>
+                    )}
+
+                    {error && (
+                        <div className="absolute inset-0 z-[2000] bg-white/90 flex flex-col items-center justify-center p-8 text-center">
+                            <div className="bg-white p-8 rounded-3xl shadow-2xl border border-red-100 max-w-md">
+                                <h2 className="text-xl font-black text-slate-800 mb-2 uppercase tracking-tight text-red-600">Error</h2>
+                                <p className="text-slate-500 text-sm mb-6 leading-relaxed">{error}</p>
+                                <button onClick={() => window.location.reload()} className="w-full bg-slate-800 text-white font-bold py-3 rounded-xl">RELOAD</button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
