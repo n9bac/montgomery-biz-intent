@@ -1476,12 +1476,17 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                                             </div>
                                         </section>
 
-                                        <section className="bg-slate-50 p-6 rounded-2xl border border-slate-100 overflow-hidden">
-                                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Structured Schema Inspector</p>
-                                            <pre className="text-[10px] bg-white p-4 rounded-lg overflow-x-auto text-slate-600 whitespace-pre-wrap font-mono border">
-                                                {JSON.stringify(interpretedIntent, null, 2)}
-                                            </pre>
-                                        </section>
+										<details className="bg-slate-50 rounded-2xl border border-slate-100 overflow-hidden">
+											<summary className="p-6 cursor-pointer list-none flex justify-between items-center hover:bg-slate-100 transition">
+												<p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Structured Schema Inspector</p>
+												<span className="text-[10px] text-slate-400 font-bold">▼ expand</span>
+											</summary>
+											<div className="px-6 pb-6">
+												<pre className="text-[10px] bg-white p-4 rounded-lg overflow-x-auto text-slate-600 whitespace-pre-wrap font-mono border">
+													{JSON.stringify(interpretedIntent, null, 2)}
+												</pre>
+											</div>
+										</details>
                                     </div>
                                 )}
                             </div>
