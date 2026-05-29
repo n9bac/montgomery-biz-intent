@@ -1,0 +1,317 @@
+[
+  {
+    "id": "retail_storefront",
+    "label": "Retail Storefront",
+    "examples": ["clothing shop", "gift shop", "phone accessories", "specialty retail"],
+    "public_facing": 0.95,
+    "appointment_based": 0.1,
+    "footfall_need": 0.85,
+    "parking_need": 0.55,
+    "transit_need": 0.45,
+    "evening_activity": 0.25,
+    "noise_generation": 0.1,
+    "delivery_logistics_need": 0.25,
+    "preferred_space_profiles": ["storefront", "small_retail_unit"],
+    "likely_zoning_families": ["commercial", "mixed_use"],
+    "zoning_strictness": "medium",
+    "classification_ambiguity": "low",
+    "risk_notes": [
+      "Needs visibility more than office-like credibility.",
+      "Weak fit in purely residential zones."
+    ]
+  },
+  {
+    "id": "food_beverage_sitdown",
+    "label": "Food & Beverage - Sit-Down",
+    "examples": ["restaurant", "cafe", "bistro", "wine bar"],
+    "public_facing": 1.0,
+    "appointment_based": 0.1,
+    "footfall_need": 0.85,
+    "parking_need": 0.55,
+    "transit_need": 0.55,
+    "evening_activity": 0.75,
+    "noise_generation": 0.45,
+    "delivery_logistics_need": 0.35,
+    "preferred_space_profiles": ["restaurant_unit", "storefront"],
+    "likely_zoning_families": ["commercial", "mixed_use"],
+    "zoning_strictness": "high",
+    "classification_ambiguity": "medium",
+    "risk_notes": [
+      "May require extra approvals beyond base zoning.",
+      "Residential adjacency may create nuisance conflicts."
+    ]
+  },
+  {
+    "id": "food_beverage_quickservice",
+    "label": "Food & Beverage - Takeaway / Quick Service",
+    "examples": ["pizza takeaway", "sandwich shop", "bubble tea", "small sushi takeaway"],
+    "public_facing": 0.95,
+    "appointment_based": 0.05,
+    "footfall_need": 0.75,
+    "parking_need": 0.5,
+    "transit_need": 0.45,
+    "evening_activity": 0.5,
+    "noise_generation": 0.25,
+    "delivery_logistics_need": 0.55,
+    "preferred_space_profiles": ["small_food_unit", "storefront"],
+    "likely_zoning_families": ["commercial", "mixed_use"],
+    "zoning_strictness": "high",
+    "classification_ambiguity": "low",
+    "risk_notes": [
+      "Lunch demand and pickup access may matter more than prestige.",
+      "Traffic flow and curb access can be important."
+    ]
+  },
+  {
+    "id": "bar_nightlife_entertainment",
+    "label": "Bar / Nightlife / Entertainment Venue",
+    "examples": ["cocktail bar", "lounge", "live music bar", "night venue"],
+    "public_facing": 1.0,
+    "appointment_based": 0.05,
+    "footfall_need": 0.7,
+    "parking_need": 0.5,
+    "transit_need": 0.45,
+    "evening_activity": 1.0,
+    "noise_generation": 0.85,
+    "delivery_logistics_need": 0.2,
+    "preferred_space_profiles": ["entertainment_unit", "bar_unit"],
+    "likely_zoning_families": ["commercial", "mixed_use", "special_review"],
+    "zoning_strictness": "high",
+    "classification_ambiguity": "medium",
+    "risk_notes": [
+      "Noise and late activity create strong location sensitivity.",
+      "Historic or overlay rules may add extra friction."
+    ]
+  },
+  {
+    "id": "professional_office_service",
+    "label": "Professional Office / Business Service",
+    "examples": ["lawyer", "accountant", "consultant", "insurance office"],
+    "public_facing": 0.55,
+    "appointment_based": 0.45,
+    "footfall_need": 0.15,
+    "parking_need": 0.45,
+    "transit_need": 0.3,
+    "evening_activity": 0.1,
+    "noise_generation": 0.05,
+    "delivery_logistics_need": 0.1,
+    "preferred_space_profiles": ["office", "small_office_suite"],
+    "likely_zoning_families": ["office", "commercial", "mixed_use"],
+    "zoning_strictness": "medium",
+    "classification_ambiguity": "low",
+    "risk_notes": [
+      "Destination-based use, not classic retail.",
+      "Street footfall is often secondary."
+    ]
+  },
+  {
+    "id": "health_medical_therapy",
+    "label": "Health / Medical / Therapy Practice",
+    "examples": ["dentist", "physiotherapist", "speech therapist", "counseling practice"],
+    "public_facing": 0.75,
+    "appointment_based": 0.95,
+    "footfall_need": 0.1,
+    "parking_need": 0.75,
+    "transit_need": 0.4,
+    "evening_activity": 0.1,
+    "noise_generation": 0.05,
+    "delivery_logistics_need": 0.1,
+    "preferred_space_profiles": ["clinic_like", "medical_office", "office_suite"],
+    "likely_zoning_families": ["office", "commercial", "medical_office"],
+    "zoning_strictness": "high",
+    "classification_ambiguity": "medium",
+    "risk_notes": [
+      "Medical uses may be treated differently from standard office uses.",
+      "Accessibility and drop-off convenience matter."
+    ]
+  },
+  {
+    "id": "beauty_personal_service",
+    "label": "Beauty / Personal Care Service",
+    "examples": ["hair salon", "barber", "nail studio", "esthetician"],
+    "public_facing": 0.9,
+    "appointment_based": 0.7,
+    "footfall_need": 0.45,
+    "parking_need": 0.55,
+    "transit_need": 0.35,
+    "evening_activity": 0.35,
+    "noise_generation": 0.1,
+    "delivery_logistics_need": 0.1,
+    "preferred_space_profiles": ["small_service_unit", "storefront"],
+    "likely_zoning_families": ["commercial", "mixed_use"],
+    "zoning_strictness": "medium",
+    "classification_ambiguity": "low",
+    "risk_notes": [
+      "Convenience may matter more than premium frontage.",
+      "Repeat neighborhood clientele can be a core pattern."
+    ]
+  },
+  {
+    "id": "fitness_wellness_studio",
+    "label": "Fitness / Wellness Studio",
+    "examples": ["yoga studio", "pilates", "boutique gym", "martial arts studio"],
+    "public_facing": 0.85,
+    "appointment_based": 0.4,
+    "footfall_need": 0.25,
+    "parking_need": 0.8,
+    "transit_need": 0.45,
+    "evening_activity": 0.45,
+    "noise_generation": 0.35,
+    "delivery_logistics_need": 0.05,
+    "preferred_space_profiles": ["studio", "large_service_unit"],
+    "likely_zoning_families": ["commercial", "mixed_use"],
+    "zoning_strictness": "medium",
+    "classification_ambiguity": "low",
+    "risk_notes": [
+      "Parking and interior space matter more than classic retail footfall.",
+      "Can generate periodic traffic peaks."
+    ]
+  },
+  {
+    "id": "education_training_child_service",
+    "label": "Education / Training / Child-Oriented Service",
+    "examples": ["tutoring center", "language school", "coding academy", "child educational service"],
+    "public_facing": 0.85,
+    "appointment_based": 0.45,
+    "footfall_need": 0.15,
+    "parking_need": 0.8,
+    "transit_need": 0.45,
+    "evening_activity": 0.3,
+    "noise_generation": 0.35,
+    "delivery_logistics_need": 0.05,
+    "preferred_space_profiles": ["classroom_like", "educational_unit", "service_unit"],
+    "likely_zoning_families": ["commercial", "institutional", "special_review"],
+    "zoning_strictness": "high",
+    "classification_ambiguity": "medium",
+    "risk_notes": [
+      "Child-related uses may need extra review or licensing.",
+      "Drop-off patterns can matter."
+    ]
+  },
+  {
+    "id": "home_property_trade_service_office",
+    "label": "Home / Property / Trade Service Office",
+    "examples": ["HVAC office", "plumbing office", "electrician office", "cleaning service office"],
+    "public_facing": 0.35,
+    "appointment_based": 0.35,
+    "footfall_need": 0.05,
+    "parking_need": 0.65,
+    "transit_need": 0.15,
+    "evening_activity": 0.1,
+    "noise_generation": 0.2,
+    "delivery_logistics_need": 0.45,
+    "preferred_space_profiles": ["office_with_yard", "small_office", "service_yard_light"],
+    "likely_zoning_families": ["commercial", "light_industrial", "service_commercial"],
+    "zoning_strictness": "high",
+    "classification_ambiguity": "medium",
+    "risk_notes": [
+      "Vehicle or storage needs may make pure office zones a bad fit.",
+      "Often misread as simple office activity."
+    ]
+  },
+  {
+    "id": "workshop_maker_light_production",
+    "label": "Workshop / Maker / Light Production",
+    "examples": ["custom furniture studio", "artisan workshop", "print production", "light fabrication"],
+    "public_facing": 0.25,
+    "appointment_based": 0.15,
+    "footfall_need": 0.05,
+    "parking_need": 0.5,
+    "transit_need": 0.15,
+    "evening_activity": 0.2,
+    "noise_generation": 0.45,
+    "delivery_logistics_need": 0.65,
+    "preferred_space_profiles": ["workshop", "light_production_unit"],
+    "likely_zoning_families": ["light_industrial", "service_industrial"],
+    "zoning_strictness": "high",
+    "classification_ambiguity": "medium",
+    "risk_notes": [
+      "Operational impacts matter more than customer-facing visibility.",
+      "May conflict with mixed-use or residential adjacency."
+    ]
+  },
+  {
+    "id": "warehouse_logistics_fulfillment",
+    "label": "Warehouse / Logistics / Fulfillment",
+    "examples": ["returns warehouse", "dispatch center", "e-commerce storage", "micro-fulfillment"],
+    "public_facing": 0.05,
+    "appointment_based": 0.05,
+    "footfall_need": 0.0,
+    "parking_need": 0.45,
+    "transit_need": 0.05,
+    "evening_activity": 0.25,
+    "noise_generation": 0.45,
+    "delivery_logistics_need": 1.0,
+    "preferred_space_profiles": ["warehouse", "industrial_unit"],
+    "likely_zoning_families": ["industrial", "logistics"],
+    "zoning_strictness": "very_high",
+    "classification_ambiguity": "low",
+    "risk_notes": [
+      "Usually impossible fit in ordinary commercial or residential zones.",
+      "Truck access and loading are core constraints."
+    ]
+  },
+  {
+    "id": "hybrid_retail_service",
+    "label": "Hybrid Retail + Service",
+    "examples": ["pet grooming boutique", "bike repair and sales", "florist with workshop", "bookstore with cafe-lite"],
+    "public_facing": 0.85,
+    "appointment_based": 0.45,
+    "footfall_need": 0.45,
+    "parking_need": 0.5,
+    "transit_need": 0.35,
+    "evening_activity": 0.25,
+    "noise_generation": 0.15,
+    "delivery_logistics_need": 0.2,
+    "preferred_space_profiles": ["flex_storefront", "service_retail_unit"],
+    "likely_zoning_families": ["commercial", "mixed_use"],
+    "zoning_strictness": "medium",
+    "classification_ambiguity": "high",
+    "risk_notes": [
+      "Classification can swing depending on which activity is dominant.",
+      "May need one clarification question."
+    ]
+  },
+  {
+    "id": "digital_creative_studio",
+    "label": "Digital / Creative Studio",
+    "examples": ["design studio", "media office", "software micro-office", "architecture studio"],
+    "public_facing": 0.25,
+    "appointment_based": 0.35,
+    "footfall_need": 0.05,
+    "parking_need": 0.25,
+    "transit_need": 0.35,
+    "evening_activity": 0.1,
+    "noise_generation": 0.05,
+    "delivery_logistics_need": 0.05,
+    "preferred_space_profiles": ["office", "studio_office", "downtown_workspace"],
+    "likely_zoning_families": ["office", "commercial", "mixed_use"],
+    "zoning_strictness": "low",
+    "classification_ambiguity": "medium",
+    "risk_notes": [
+      "Often behaves like office, not like retail.",
+      "Image and talent access may matter more than frontage."
+    ]
+  },
+  {
+    "id": "emerging_or_hard_to_classify",
+    "label": "Hard-to-Classify / Emerging Concept",
+    "examples": ["AI demo space", "creator house", "dark kitchen with pickup hybrid", "experiential showroom"],
+    "public_facing": null,
+    "appointment_based": null,
+    "footfall_need": null,
+    "parking_need": null,
+    "transit_need": null,
+    "evening_activity": null,
+    "noise_generation": null,
+    "delivery_logistics_need": null,
+    "preferred_space_profiles": ["unknown_until_decomposed"],
+    "likely_zoning_families": ["unknown_until_decomposed"],
+    "zoning_strictness": "high",
+    "classification_ambiguity": "very_high",
+    "risk_notes": [
+      "Must be decomposed into actual operational behaviors before matching.",
+      "Should trigger clarification or manual review."
+    ]
+  }
+]

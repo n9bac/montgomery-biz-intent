@@ -1,0 +1,171 @@
+{
+  "$schema_version": "1.0",
+  "description": "Seed configuration for the next deterministic advanced indicator layer. These indicators improve business-fit reasoning and transparency without introducing legal compliance or zoning-validity claims.",
+  "governance_rules": {
+    "must_keep_indicator_names_exact": true,
+    "must_preserve_purpose_and_limitations": true,
+    "must_not_decide_legal_compliance": true,
+    "must_not_decide_zoning_validity": true,
+    "must_not_decide_final_recommendation": true,
+    "must_remain_explainable": true,
+    "must_allow_honest_uncertainty": true
+  },
+  "indicators": [
+    {
+      "name": "proxy_confidence_score",
+      "group": "transparency",
+      "purpose": "Express how grounded the tract/business analysis is, given the mix of direct indicators, constructed proxies, and missing advanced indicators.",
+      "business_value": "Helps the user understand whether the current fit result is strongly data-grounded or still heavily heuristic.",
+      "applies_to": [
+        "all business concepts"
+      ],
+      "input_data": {
+        "direct_indicators_v1": [
+          "demand_score",
+          "business_density",
+          "median_income",
+          "median_age",
+          "transit_access"
+        ],
+        "proxy_indicators_v1": [
+          "relative_business_presence",
+          "parking_proxy",
+          "vehicle_access_proxy",
+          "family_proxy",
+          "nightlife_proxy",
+          "commercial_activity_proxy",
+          "low_cost_proxy",
+          "after_work_leisure_proxy"
+        ],
+        "interpreter_fields_used": [
+          "confidence",
+          "ambiguity_level",
+          "location_needs"
+        ]
+      },
+      "formula_v1": {
+        "description": "Weighted blend of direct-data ratio, indicator coverage ratio, and business-model clarity.",
+        "expression": "0.6 * direct_data_ratio + 0.25 * indicator_coverage_ratio + 0.15 * business_model_clarity",
+        "subcomponents": {
+          "direct_data_ratio": "number_of_direct_indicators_used_by_active_business_needs / total_number_of_indicators_used_by_active_business_needs",
+          "indicator_coverage_ratio": "number_of_needed_indicators_available / total_number_of_needed_indicators_expected",
+          "business_model_clarity": {
+            "ambiguity_low": 1.0,
+            "ambiguity_medium": 0.7,
+            "ambiguity_high": 0.4
+          }
+        },
+        "expected_range": [0.0, 1.0]
+      },
+      "limitations": [
+        "Direct does not mean perfect.",
+        "Some proxies may still be analytically strong.",
+        "This score is a transparency aid, not a scientific certainty score."
+      ],
+      "recommended_ui_role": [
+        "transparency panel",
+        "fit summary label such as 'Analytical Confidence'"
+      ],
+      "implementation_priority": "high"
+    },
+    {
+      "name": "data_completeness_score",
+      "group": "transparency",
+      "purpose": "Express whether the system currently has enough relevant indicators to answer the business-fit question well.",
+      "business_value": "Helps the system state when the result is partial and when additional data or a future discovery agent would be useful.",
+      "applies_to": [
+        "all business concepts"
+      ],
+      "input_data": {
+        "interpreter_fields_used": [
+          "location_needs",
+          "business_family_id",
+          "secondary_family_id",
+          "ambiguity_level"
+        ],
+        "support_levels_v1": {
+          "full_support": 1.0,
+          "proxy_only_support": 0.6,
+          "weak_or_incomplete_support": 0.3
+        },
+        "advanced_indicators_expected_but_not_always_available": [
+          "after_work_leisure_proxy",
+          "family_logistics_proxy",
+          "daytime_activity_proxy",
+          "office_worker_presence",
+          "hobby_class_demand_proxy"
+        ]
+      },
+      "formula_v1": {
+        "description": "Weighted coverage of active business needs based on how well each need is currently supported by the tract model.",
+        "expression": "covered_need_weight / total_active_need_weight",
+        "subcomponents": {
+          "total_active_need_weight": "sum of active interpreted location_needs values",
+          "covered_need_weight": "for each active need, need_weight multiplied by support_level (1.0, 0.6, or 0.3)"
+        },
+        "expected_range": [0.0, 1.0]
+      },
+      "limitations": [
+        "Support levels are deterministic policy values, not discovered truths.",
+        "Not all missing indicators are equally important.",
+        "This score should signal completeness, not authority."
+      ],
+      "recommended_ui_role": [
+        "transparency panel",
+        "fit summary label such as 'Data Coverage'",
+        "future trigger for discovery-agent assistance"
+      ],
+      "implementation_priority": "high"
+    },
+    {
+      "name": "after_work_leisure_proxy",
+      "group": "operational",
+      "purpose": "Estimate whether the tract is suitable for after-work leisure, hobby, class-based activity, and the transition from work into leisure.",
+      "business_value": "Improves reasoning for ceramic studios, yoga, language classes, creative workshops, casual wine bars, and social clubs.",
+      "applies_to": [
+        "ceramic studio",
+        "yoga studio",
+        "language classes",
+        "music school",
+        "creative workshop",
+        "casual wine bar",
+        "social club"
+      ],
+      "input_data": {
+        "tract_indicators_used_v1": [
+          "nightlife_proxy",
+          "transit_access",
+          "commercial_activity_proxy",
+          "parking_proxy"
+        ]
+      },
+      "formula_v1": {
+        "description": "Weighted blend of evening/social vitality, access, active commercial context, and destination convenience.",
+        "expression": "0.35 * nightlife_proxy + 0.25 * transit_access + 0.25 * commercial_activity_proxy + 0.15 * parking_proxy",
+        "expected_range": [0.0, 1.0]
+      },
+      "limitations": [
+        "This is still a transitional indicator until office_worker_presence exists.",
+        "It may over-reward active evening areas for some class-based uses.",
+        "It should be presented as a proxy, not a direct measure of leisure demand."
+      ],
+      "recommended_ui_role": [
+        "internal fit logic first",
+        "later transparency panel label such as 'After-work leisure potential'"
+      ],
+      "implementation_priority": "high"
+    }
+  ],
+  "implementation_notes": {
+    "first_expected_use": [
+      "tract indicator normalization layer",
+      "fit computation layer",
+      "transparency layer"
+    ],
+    "do_not_do_yet": [
+      "legal inference",
+      "zoning validity claims",
+      "final recommendation claims"
+    ]
+  }
+}

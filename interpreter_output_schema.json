@@ -1,0 +1,165 @@
+{
+  "$schema_version": "1.0",
+  "description": "Structured output contract for the investor-intent interpreter. The interpreter translates short business descriptions into normalized product logic fields. It does not decide legal compliance, final scoring, or zoning validity.",
+  "field_rules": {
+    "business_family_id_must_match_known_family": true,
+    "secondary_family_id_optional": true,
+    "no_new_business_families_may_be_invented": true,
+    "clarification_question_max_count": 1,
+    "interpreter_must_not_decide_legal_compliance": true,
+    "interpreter_must_not_decide_final_recommendation": true,
+    "interpreter_must_not_decide_zoning_validity": true
+  },
+  "enums": {
+    "customer_mode": ["walk_in", "appointment", "delivery", "backoffice", "hybrid"],
+    "space_profile": [
+      "storefront",
+      "small_retail_unit",
+      "restaurant_unit",
+      "office",
+      "clinic_like",
+      "studio",
+      "workshop",
+      "warehouse",
+      "flex_storefront",
+      "unknown"
+    ],
+    "ambiguity_level": ["low", "medium", "high"],
+    "zoning_candidate_families": [
+      "commercial",
+      "mixed_use",
+      "office",
+      "medical_office",
+      "institutional",
+      "special_review",
+      "light_industrial",
+      "service_industrial",
+      "service_commercial",
+      "industrial",
+      "logistics",
+      "unknown_until_decomposed"
+    ]
+  },
+  "output_template": {
+    "business_text": "string",
+    "priority_text": "string|null",
+    "canonical_label": "string",
+    "business_family_id": "string",
+    "secondary_family_id": "string|null",
+    "reasoning_summary": "string",
+    "customer_mode": "walk_in|appointment|delivery|backoffice|hybrid",
+    "space_profile": "storefront|small_retail_unit|restaurant_unit|office|clinic_like|studio|workshop|warehouse|flex_storefront|unknown",
+    "location_needs": {
+      "visibility": 0.0,
+      "footfall": 0.0,
+      "parking": 0.0,
+      "transit": 0.0,
+      "affluent_area": 0.0,
+      "family_area": 0.0,
+      "nightlife_area": 0.0,
+      "low_rent_priority": 0.0,
+      "vehicle_access": 0.0
+    },
+    "activity_profile": {
+      "daytime": 0.0,
+      "evening": 0.0,
+      "noise_tolerance_needed": 0.0,
+      "delivery_logistics": 0.0
+    },
+    "zoning_candidate_families": [],
+    "detected_flags": {
+      "alcohol_sensitive": false,
+      "child_sensitive": false,
+      "medical_sensitive": false,
+      "industrial_sensitive": false,
+      "hybrid_concept": false
+    },
+    "confidence": 0.0,
+    "ambiguity_level": "low|medium|high",
+    "needs_confirmation": true,
+    "clarification_question": "string|null",
+    "interpretation_notes": []
+  },
+  "numeric_field_policy": {
+    "range_min": 0.0,
+    "range_max": 1.0,
+    "applies_to": [
+      "location_needs.visibility",
+      "location_needs.footfall",
+      "location_needs.parking",
+      "location_needs.transit",
+      "location_needs.affluent_area",
+      "location_needs.family_area",
+      "location_needs.nightlife_area",
+      "location_needs.low_rent_priority",
+      "location_needs.vehicle_access",
+      "activity_profile.daytime",
+      "activity_profile.evening",
+      "activity_profile.noise_tolerance_needed",
+      "activity_profile.delivery_logistics",
+      "confidence"
+    ]
+  },
+  "required_fields": [
+    "business_text",
+    "priority_text",
+    "canonical_label",
+    "business_family_id",
+    "secondary_family_id",
+    "reasoning_summary",
+    "customer_mode",
+    "space_profile",
+    "location_needs",
+    "activity_profile",
+    "zoning_candidate_families",
+    "detected_flags",
+    "confidence",
+    "ambiguity_level",
+    "needs_confirmation",
+    "clarification_question",
+    "interpretation_notes"
+  ],
+  "example_output": {
+    "business_text": "small evening wine bar with tapas",
+    "priority_text": null,
+    "canonical_label": "wine bar / small food service",
+    "business_family_id": "food_beverage_sitdown",
+    "secondary_family_id": null,
+    "reasoning_summary": "Small customer-facing food and drink concept with strong evening orientation.",
+    "customer_mode": "walk_in",
+    "space_profile": "restaurant_unit",
+    "location_needs": {
+      "visibility": 0.8,
+      "footfall": 0.8,
+      "parking": 0.4,
+      "transit": 0.6,
+      "affluent_area": 0.4,
+      "family_area": 0.1,
+      "nightlife_area": 0.9,
+      "low_rent_priority": 0.2,
+      "vehicle_access": 0.1
+    },
+    "activity_profile": {
+      "daytime": 0.2,
+      "evening": 0.95,
+      "noise_tolerance_needed": 0.5,
+      "delivery_logistics": 0.2
+    },
+    "zoning_candidate_families": ["commercial", "mixed_use"],
+    "detected_flags": {
+      "alcohol_sensitive": true,
+      "child_sensitive": false,
+      "medical_sensitive": false,
+      "industrial_sensitive": false,
+      "hybrid_concept": false
+    },
+    "confidence": 0.86,
+    "ambiguity_level": "medium",
+    "needs_confirmation": true,
+    "clarification_question": "Will alcohol service be central to the business?",
+    "interpretation_notes": [
+      "Evening orientation is strong.",
+      "May require more than standard retail compatibility."
+    ]
+  }
+}

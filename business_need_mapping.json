@@ -1,0 +1,151 @@
+{
+  "$schema_version": "1.0",
+  "description": "Deterministic mapping layer connecting interpreted business needs to tract-level indicators. This file does not decide legal compliance, zoning validity, or final recommendation. It defines which tract indicators are most relevant for each business need and how strongly they should contribute to fit scoring.",
+  "global_weights": {
+    "primary_match_weight": 1.0,
+    "secondary_match_weight": 0.5
+  },
+  "supported_business_needs": [
+    "visibility",
+    "footfall",
+    "parking",
+    "transit",
+    "affluent_area",
+    "family_area",
+    "nightlife_area",
+    "low_rent_priority",
+    "vehicle_access"
+  ],
+  "supported_tract_indicators": [
+    "demand_score",
+    "business_density",
+    "relative_business_presence",
+    "median_income",
+    "median_age",
+    "transit_access",
+    "parking_proxy",
+    "vehicle_access_proxy",
+    "family_proxy",
+    "nightlife_proxy",
+    "commercial_activity_proxy",
+    "low_cost_proxy"
+  ],
+  "business_need_to_tract_mapping_v1": {
+    "visibility": {
+      "primary_matches": [
+        "business_density",
+        "commercial_activity_proxy",
+        "relative_business_presence"
+      ],
+      "secondary_matches": [
+        "transit_access"
+      ],
+      "notes": "Visibility is best approximated by commercial concentration and active urban character."
+    },
+    "footfall": {
+      "primary_matches": [
+        "business_density",
+        "commercial_activity_proxy",
+        "transit_access"
+      ],
+      "secondary_matches": [
+        "relative_business_presence"
+      ],
+      "notes": "Footfall depends on active movement, centrality, and service clustering."
+    },
+    "parking": {
+      "primary_matches": [
+        "parking_proxy",
+        "vehicle_access_proxy"
+      ],
+      "secondary_matches": [
+        "commercial_activity_proxy"
+      ],
+      "notes": "Parking-heavy businesses often fit destination-based and lower-density access patterns."
+    },
+    "transit": {
+      "primary_matches": [
+        "transit_access"
+      ],
+      "secondary_matches": [
+        "business_density",
+        "commercial_activity_proxy"
+      ],
+      "notes": "Transit relevance is strongest where stop access and urban centrality overlap."
+    },
+    "affluent_area": {
+      "primary_matches": [
+        "median_income"
+      ],
+      "secondary_matches": [
+        "commercial_activity_proxy"
+      ],
+      "notes": "Affluent demand is best approximated by income and secondarily by premium-like active areas."
+    },
+    "family_area": {
+      "primary_matches": [
+        "family_proxy"
+      ],
+      "secondary_matches": [
+        "median_age",
+        "parking_proxy"
+      ],
+      "notes": "Family-oriented uses often benefit from residential stability and convenient arrival."
+    },
+    "nightlife_area": {
+      "primary_matches": [
+        "nightlife_proxy",
+        "commercial_activity_proxy"
+      ],
+      "secondary_matches": [
+        "transit_access"
+      ],
+      "notes": "Nightlife fit should reflect evening-serving business concentration and central access."
+    },
+    "low_rent_priority": {
+      "primary_matches": [
+        "low_cost_proxy"
+      ],
+      "secondary_matches": [
+        "relative_business_presence"
+      ],
+      "notes": "This is a weak approximation until true rent or cost data exists."
+    },
+    "vehicle_access": {
+      "primary_matches": [
+        "vehicle_access_proxy",
+        "parking_proxy"
+      ],
+      "secondary_matches": [
+        "low_cost_proxy"
+      ],
+      "notes": "Vehicle-heavy businesses need road and logistics suitability more than central footfall."
+    }
+  },
+  "fit_logic_policy": {
+    "purpose": "Compute deterministic tract-fit contributions from interpreted business needs and tract indicators.",
+    "core_rule": "For each business need, multiply the interpreted need score by the weighted average of its matched tract indicators.",
+    "normalization_note": "Primary and secondary contributions should be divided by the sum of their applied weights for that need.",
+    "interpretation_note": "This mapping layer supports fit analysis and explanation. It does not constitute final recommendation or legal validation."
+  },
+  "example_formula_templates": {
+    "single_need_template": "need_score * weighted_average_of_matched_indicators",
+    "footfall_example": "footfall_need * ((1.0*business_density + 1.0*commercial_activity_proxy + 1.0*transit_access + 0.5*relative_business_presence) / 3.5)",
+    "parking_example": "parking_need * ((1.0*parking_proxy + 1.0*vehicle_access_proxy + 0.5*commercial_activity_proxy) / 2.5)"
+  },
+  "proxy_quality_notes": {
+    "commercial_activity_proxy": "Can initially be approximated from business_density and relative_business_presence.",
+    "family_proxy": "Should use family or household demographic fields where available; otherwise use a temporary approximation.",
+    "nightlife_proxy": "Should ideally use evening-serving business categories when available.",
+    "parking_proxy": "May begin as a heuristic until real parking data exists.",
+    "vehicle_access_proxy": "May begin as a road/logistics suitability heuristic.",
+    "low_cost_proxy": "Should be treated as provisional until true rent or occupancy cost data exists."
+  },
+  "governance_rules": {
+    "must_not_decide_legal_compliance": true,
+    "must_not_decide_zoning_validity": true,
+    "must_not_decide_final_recommendation": true,
+    "must_remain_explainable": true,
+    "must_use_deterministic_logic": true
+  }
+}
