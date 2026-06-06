@@ -1160,22 +1160,24 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                                     <div className="space-y-4">
                                         <div>
                                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Business Description</label>
-                                            <textarea 
-                                                value={investorDescription}
-                                                onChange={(e) => setInvestorDescription(e.target.value)}
-                                                placeholder="e.g. I want to open a small independent coffee shop with some bakery items."
-                                                className="w-full h-32 p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-slate-900 outline-none transition"
-                                            />
+											<textarea 
+												value={investorDescription}
+												onChange={(e) => setInvestorDescription(e.target.value)}
+												placeholder="e.g. I want to open a small independent coffee shop with some bakery items."
+												readOnly={!!interpretedIntent}
+												className={`w-full h-32 p-4 border rounded-xl text-sm outline-none transition ${interpretedIntent ? 'bg-slate-100 border-slate-200 text-slate-500 cursor-not-allowed' : 'bg-slate-50 border-slate-200 focus:ring-2 focus:ring-slate-900'}`}
+											/>
                                         </div>
                                         <div>
                                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Investor Priorities (Comma separated)</label>
-                                            <input 
-                                                type="text"
-                                                value={investorPriorities}
-                                                onChange={(e) => setInvestorPriorities(e.target.value)}
-                                                placeholder="e.g. high_visibility, low_competition, parking"
-                                                className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-slate-900 outline-none transition"
-                                            />
+											<input 
+												type="text"
+												value={investorPriorities}
+												onChange={(e) => setInvestorPriorities(e.target.value)}
+												placeholder="e.g. high_visibility, low_competition, parking"
+												readOnly={!!interpretedIntent}
+												className={`w-full p-4 border rounded-xl text-sm outline-none transition ${interpretedIntent ? 'bg-slate-100 border-slate-200 text-slate-500 cursor-not-allowed' : 'bg-slate-50 border-slate-200 focus:ring-2 focus:ring-slate-900'}`}
+											/>
                                         </div>
 										{!apiKeySubmitted && (
 											<div className="space-y-2">
@@ -1203,20 +1205,27 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
 												<button onClick={() => { setApiKeySubmitted(false); setGeminiApiKey(''); }} className="ml-auto text-[9px] text-slate-400 hover:text-slate-600 underline">Reset</button>
 											</div>
 										)}
-                                        <button 
-                                            onClick={runInterpreter}
-                                            disabled={!investorDescription || isInterpreting}
-                                            className={`w-full py-4 rounded-xl font-black text-xs uppercase tracking-widest transition ${!investorDescription || isInterpreting ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-900 text-white hover:bg-slate-800 shadow-lg'}`}>
-                                            {isInterpreting ? 'Interpreting...' : 'Read Investor Intent'}
-                                        </button>
-                                    </div>
-                                </section>
-
-                                <section className="bg-slate-900 p-8 rounded-3xl shadow-xl text-white">
-                                    <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Prototype Guidance</h3>
-                                    <div className="space-y-3 text-xs leading-relaxed text-slate-300">
-                                        <p><b className="text-white">Deterministic Trigger:</b> Try keywords like <span className="italic text-indigo-300">"coffee"</span>, <span className="italic text-indigo-300">"office"</span>, or <span className="italic text-indigo-300">"clothing"</span> to see categorized mapping.</p>
-                                        <p><b className="text-white">Ambiguity Test:</b> Write a very short sentence to trigger a clarification question.</p>
+										{!interpretedIntent ? (
+											<button 
+												onClick={runInterpreter}
+												disabled={!investorDescription || isInterpreting}
+												className={`w-full py-4 rounded-xl font-black text-xs uppercase tracking-widest transition ${!investorDescription || isInterpreting ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-900 text-white hover:bg-slate-800 shadow-lg'}`}>
+												{isInterpreting ? 'Interpreting...' : 'Read Investor Intent'}
+											</button>
+										) : (
+											<button 
+												onClick={() => {
+													setInvestorDescription('');
+													setInvestorPriorities('');
+													setInterpretedIntent(null);
+													setClarificationResponse('');
+													setTopMatches([]);
+													setSelectedTract(null);
+												}}
+												className="w-full py-4 rounded-xl font-black text-xs uppercase tracking-widest transition bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg">
+												↩ Start New Search
+											</button>
+										)}
                                     </div>
                                 </section>
                             </div>
