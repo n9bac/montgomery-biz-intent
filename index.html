@@ -95,8 +95,29 @@
             const [isInterpreting, setIsInterpreting] = useState(false);
 			const [keyConfirmed, setKeyConfirmed] = useState(false);
 			const [topMatches, setTopMatches] = useState([]);
+			
+			const [schemaOpen, setSchemaOpen] = useState(false);
+			const [isMockMode, setIsMockMode] = useState(false);
 
             const viewModeRef = useRef(viewMode);
+			const showTractOnMap = (geoid) => {
+				if (!geoJsonData) return;
+				const tractFeature = geoJsonData.features.find(f => f.properties.GEOID === geoid);
+				if (!tractFeature) return;
+				setSelectedTract(tractFeature.properties);
+				setUiMode('map');
+				setTimeout(() => {
+					if (geoJsonLayerRef.current && mapRef.current) {
+						geoJsonLayerRef.current.eachLayer((layer) => {
+							if (layer.feature && layer.feature.properties.GEOID === geoid) {
+								const bounds = layer.getBounds();
+								mapRef.current.setView(bounds.getCenter(), 13);
+								layer.openPopup();
+							}
+						});
+					}
+				}, 150);
+			};
 			const confirmApiKey = async () => {
 				if (!geminiApiKey.trim()) return;
 				try {
@@ -117,25 +138,100 @@
             const geoJsonLayerRef = useRef(null);
 
             useEffect(() => {
-                fetch('/business_families.json')
-                    .then(res => res.json())
-                    .then(data => setBusinessFamilies(data || []))
-                    .catch(err => console.error("Could not load families", err));
+                // --- business_families.json + cluster patch ---
+                Promise.all([
+                    fetch('/business_families.json').then(r => r.json()),
+                    fetch('/business_families_cluster_patch.json').then(r => r.json())
+                        .catch(() => { console.warn('Cluster patch not found — running without it'); return null; })
+                ]).then(([base, patch]) => {
+                    if (!patch || !Array.isArray(patch.patches)) {
+                        setBusinessFamilies(base || []);
+                        return;
+                    }
+                    const patchById = Object.fromEntries(patch.patches.map(p => [p.id, p]));
+                    const merged = (base || []).map(fam => {
+                        const p = patchById[fam.id];
+                        if (!p) return fam;
+                        const out = { ...fam };
+                        if (p.target_customer_origin && !out.target_customer_origin)
+                            out.target_customer_origin = p.target_customer_origin;
+                        if (p.cluster_affinity && !out.cluster_affinity)
+                            out.cluster_affinity = p.cluster_affinity;
+                        if (p.cluster_affinity_notes && !out.cluster_affinity_notes)
+                            out.cluster_affinity_notes = p.cluster_affinity_notes;
+                        return out;
+                    });
+                    setBusinessFamilies(merged);
+                }).catch(err => console.error('Could not load families', err));
 
-                fetch('/business_need_mapping.json')
-                    .then(res => res.json())
-                    .then(data => setMappingConfig(data))
-                    .catch(err => console.error("Could not load mapping config", err));
+                // --- business_need_mapping.json + needs patch ---
+                Promise.all([
+                    fetch('/business_need_mapping.json').then(r => r.json()),
+                    fetch('/business_need_mapping_patch.json').then(r => r.json())
+                        .catch(() => { console.warn('Need mapping patch not found — running without it'); return null; })
+                ]).then(([base, patch]) => {
+                    if (!patch) { setMappingConfig(base); return; }
+                    const merged = { ...base };
+                    merged.supported_business_needs = [
+                        ...(base.supported_business_needs || []),
+                        ...(patch.new_supported_business_needs || [])
+                    ];
+                    merged.supported_tract_indicators = [
+                        ...(base.supported_tract_indicators || []),
+                        ...(patch.new_supported_tract_indicators || [])
+                    ];
+                    merged.business_need_to_tract_mapping_v1 = {
+                        ...(base.business_need_to_tract_mapping_v1 || {}),
+                        ...(patch.new_business_need_to_tract_mapping || {})
+                    };
+                    if (patch.interaction_rules) merged._patch_interaction_rules = patch.interaction_rules;
+                    if (patch.ui_transparency_recommendations) merged._patch_ui_hints = patch.ui_transparency_recommendations;
+                    setMappingConfig(merged);
+                }).catch(err => console.error('Could not load mapping config', err));
 
+                // --- advanced_indicator_seed (no patch) ---
                 fetch('/advanced_indicator_seed_v1.json')
-                    .then(res => res.json())
+                    .then(r => r.json())
                     .then(data => setAdvancedConfig(data))
-                    .catch(err => console.error("Could not load advanced config", err));
+                    .catch(err => console.error('Could not load advanced config', err));
 
-                fetch('/interpreter_output_schema.json')
-                    .then(res => res.json())
-                    .then(data => setInterpreterSchema(data))
-                    .catch(err => console.error("Could not load interpreter schema", err));
+                // --- interpreter_output_schema.json + schema patch ---
+                Promise.all([
+                    fetch('/interpreter_output_schema.json').then(r => r.json()),
+                    fetch('/interpreter_output_schema_patch.json').then(r => r.json())
+                        .catch(() => { console.warn('Schema patch not found — running without it'); return null; })
+                ]).then(([base, patch]) => {
+                    if (!patch) { setInterpreterSchema(base); return; }
+                    const merged = JSON.parse(JSON.stringify(base)); // deep clone
+                    // 1. Add target_customer_origin to output_template
+                    if (patch.output_template_additions && patch.output_template_additions.target_customer_origin) {
+                        merged.output_template.target_customer_origin = [];
+                        if (!merged.required_fields.includes('target_customer_origin'))
+                            merged.required_fields.push('target_customer_origin');
+                    }
+                    // 2. Add enum values
+                    if (patch.enum_additions && patch.enum_additions.target_customer_origin_values) {
+                        merged.enums = merged.enums || {};
+                        merged.enums.target_customer_origin_values = patch.enum_additions.target_customer_origin_values;
+                    }
+                    // 3. Add three new location_needs fields
+                    if (patch.location_needs_additions && patch.location_needs_additions.new_fields) {
+                        const newFields = patch.location_needs_additions.new_fields;
+                        Object.entries(newFields).forEach(([key, def]) => {
+                            const defVal = typeof def.default === 'number' ? def.default : 0.0;
+                            merged.output_template.location_needs[key] = defVal;
+                            const path = `location_needs.${key}`;
+                            if (!merged.numeric_field_policy.applies_to.includes(path))
+                                merged.numeric_field_policy.applies_to.push(path);
+                        });
+                    }
+                    // 4. Carry activation rules for prompt construction
+                    if (patch.interpreter_activation_rules)
+                        merged._patch_activation_rules = patch.interpreter_activation_rules;
+                    if (patch.location_needs_additions)
+                        merged._patch_location_needs_meta = patch.location_needs_additions;
+                    setInterpreterSchema(merged);
+                }).catch(err => console.error('Could not load interpreter schema', err));
             }, []);
 
             useEffect(() => {
@@ -245,6 +341,19 @@ ${JSON.stringify(interpreterSchema)}
 
 ## Numeric rules
 All numeric values in location_needs, activity_profile, and confidence must remain in the range 0.0 to 1.0.
+
+## Extended output fields (schema patch v1.1 — required)
+You must also produce these fields in addition to the base schema:
+
+target_customer_origin: array of {origin, weight} objects. Allowed origins: resident, daytime_worker, destination_visitor, passing_traffic. Weights must sum to 1.0. Use the matched family's default mix as a starting point and adjust for the specific business description.
+
+location_needs.luxury_cluster_fit (0.0–1.0): Set to 0.0 unless the description or priority_text signals premium/upscale/luxury/boutique/high-end/artisan positioning, in which case 0.6–0.95. This is independent of affluent_area — do not conflate them.
+
+location_needs.compatible_business_cluster (0.0–1.0): Default 0.5 for most families. Raise to 0.7–0.9 for cluster-dependent concepts (restaurant rows, wellness districts, professional hubs, luxury retail). Lower to 0.2–0.3 for logistics or back-office operations.
+
+location_needs.daytime_worker_concentration (0.0–1.0): Mandatory minimum 0.6 for food_beverage_quickservice, professional_office_service, and digital_creative_studio. For other families, set to approximately 0.4 + (0.4 × daytime_worker weight from target_customer_origin). Set to 0.0 only if daytime_worker weight is below 0.15.
+
+Add a note to interpretation_notes for each of these three fields explaining why the value was set as it was.
 `;
 
                     const userPrompt = `
@@ -367,7 +476,8 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                         throw new Error(`Validation Error: ${validation.reason}`);
                     }
 
-                    setInterpretedIntent(result);
+                    setIsMockMode(false);
+					setInterpretedIntent(result);
 
                 } catch (err) {
                     console.error("Gemini Interpretation Failed", err);
@@ -379,6 +489,7 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
             };
 
             const runMockLogic = () => {
+				setIsMockMode(true);
                 const input = investorDescription.toLowerCase();
                 const priosText = investorPriorities.toLowerCase();
                     
@@ -402,7 +513,11 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                 const location_needs = {
                     visibility: 0.5, footfall: 0.5, parking: 0.5, transit: 0.5,
                     affluent_area: 0.0, family_area: 0.0, nightlife_area: 0.0,
-                    low_rent_priority: 0.0, vehicle_access: 0.0
+                    low_rent_priority: 0.0, vehicle_access: 0.0,
+                    // Patch fields — generic mock defaults (no analytical value)
+                    luxury_cluster_fit: 0.0,
+                    compatible_business_cluster: 0.5,
+                    daytime_worker_concentration: 0.0
                 };
 
                 const activity_profile = {
@@ -435,6 +550,13 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                     space_profile: space_profile,
                     location_needs: location_needs,
                     activity_profile: activity_profile,
+                    // Patch field — balanced default, no analytical value in mock mode
+                    target_customer_origin: [
+                        { origin: "resident",            weight: 0.35 },
+                        { origin: "passing_traffic",     weight: 0.30 },
+                        { origin: "daytime_worker",      weight: 0.20 },
+                        { origin: "destination_visitor", weight: 0.15 }
+                    ],
                     zoning_candidate_families: ["commercial"],
                     detected_flags: flags,
                     confidence: confidence,
@@ -1141,7 +1263,12 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
 
             return (
                 <div className="relative w-full h-screen overflow-hidden flex flex-col md:flex-row">
-                    {/* Navigation */}
+                    {/* Navigation */}					
+					{isMockMode && (
+						<div className="absolute top-0 left-0 right-0 z-[2000] bg-amber-500 text-white text-center py-2 text-[11px] font-black uppercase tracking-widest">
+							⚠ Mock Mode Active — AI interpreter unavailable. Results are illustrative only and have no analytical value.
+						</div>
+					)}
                     <div className="absolute top-4 right-4 z-[1000] flex gap-2">
                         <button onClick={() => setUiMode('intent')} className={`px-4 py-2 rounded-full text-xs font-bold shadow-lg transition ${uiMode === 'intent' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600'}`}>INTENT</button>
                         <button onClick={() => setUiMode('map')} className={`px-4 py-2 rounded-full text-xs font-bold shadow-lg transition ${uiMode === 'map' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600'}`}>MAP</button>
@@ -1221,6 +1348,7 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
 													setClarificationResponse('');
 													setTopMatches([]);
 													setSelectedTract(null);
+													setIsMockMode(false);
 												}}
 												className="w-full py-4 rounded-xl font-black text-xs uppercase tracking-widest transition bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg">
 												↩ Start New Search
@@ -1401,7 +1529,7 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
 																		))}
 																	</div>
 																	<button
-																		onClick={() => { setSelectedTract(null); setUiMode('map'); }}
+																		onClick={() => showTractOnMap(m.geoid)}
 																		className="w-full py-1.5 bg-slate-700 hover:bg-indigo-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest transition">
 																		Show on Map
 																	</button>
@@ -1485,17 +1613,21 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                                             </div>
                                         </section>
 
-										<details className="bg-slate-50 rounded-2xl border border-slate-100 overflow-hidden">
-											<summary className="p-6 cursor-pointer list-none flex justify-between items-center hover:bg-slate-100 transition">
+										<div className="bg-slate-50 rounded-2xl border border-slate-100 overflow-hidden">
+											<button
+												onClick={() => setSchemaOpen(!schemaOpen)}
+												className="w-full p-6 flex justify-between items-center hover:bg-slate-100 transition">
 												<p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Structured Schema Inspector</p>
-												<span className="text-[10px] text-slate-400 font-bold">▼ expand</span>
-											</summary>
-											<div className="px-6 pb-6">
-												<pre className="text-[10px] bg-white p-4 rounded-lg overflow-x-auto text-slate-600 whitespace-pre-wrap font-mono border">
-													{JSON.stringify(interpretedIntent, null, 2)}
-												</pre>
-											</div>
-										</details>
+												<span className="text-[10px] text-slate-400 font-bold">{schemaOpen ? '▲ hide' : '▼ expand'}</span>
+											</button>
+											{schemaOpen && (
+												<div className="px-6 pb-6">
+													<pre className="text-[10px] bg-white p-4 rounded-lg overflow-x-auto text-slate-600 whitespace-pre-wrap font-mono border">
+														{JSON.stringify(interpretedIntent, null, 2)}
+													</pre>
+												</div>
+											)}
+										</div>
                                     </div>
                                 )}
                             </div>
@@ -1628,6 +1760,9 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                                                     </div>
                                                     
                                                     <div className="space-y-4">
+														<p className="text-sm font-medium text-indigo-800 italic leading-relaxed">
+															{selectedTract.fit_summary.explanatory_notes}
+														</p>
                                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                             <div className="space-y-2">
                                                                 <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Strongest Alignments</p>
