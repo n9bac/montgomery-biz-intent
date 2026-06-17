@@ -1,0 +1,124 @@
+{
+  "$schema_version": "1.1",
+  "$patch_target": "business_need_mapping.json",
+  "$patch_type": "needs_extension",
+  "description": "Adds three new business needs and their tract indicator mappings. These extend supported_business_needs and business_need_to_tract_mapping_v1. Merge by appending to both lists.",
+
+  "governance_rules": {
+    "must_not_decide_legal_compliance": true,
+    "must_not_decide_zoning_validity": true,
+    "must_not_decide_final_recommendation": true,
+    "must_remain_explainable": true,
+    "must_use_deterministic_logic": true,
+    "new_needs_are_additive_not_replacements": true
+  },
+
+  "new_supported_business_needs": [
+    "luxury_cluster_fit",
+    "compatible_business_cluster",
+    "daytime_worker_concentration"
+  ],
+
+  "new_supported_tract_indicators": [
+    "office_worker_presence",
+    "premium_business_density",
+    "anti_luxury_signal",
+    "compatible_cluster_score",
+    "commercial_property_value_proxy"
+  ],
+
+  "new_business_need_to_tract_mapping": {
+
+    "luxury_cluster_fit": {
+      "primary_matches": [
+        "premium_business_density",
+        "commercial_property_value_proxy"
+      ],
+      "secondary_matches": [
+        "median_income",
+        "anti_luxury_signal"
+      ],
+      "secondary_modifier_note": "anti_luxury_signal is an INVERTED input: a high anti_luxury_signal REDUCES this need's score. Formula must apply (1 - anti_luxury_signal) as the modifier, not anti_luxury_signal directly.",
+      "notes": "This need is categorically different from affluent_area. affluent_area measures resident wealth. luxury_cluster_fit measures whether the commercial environment itself signals premium positioning — regardless of who lives there. The two can diverge sharply: a downtown luxury retail corridor may sit in a mixed-income residential tract.",
+      "distinguishing_logic": {
+        "affluent_area_vs_luxury_cluster_fit": "affluent_area → who lives here. luxury_cluster_fit → what kind of businesses have already established here and what the commercial space signals to high-spend visitors.",
+        "when_to_activate": "Activate when the interpreted business concept signals premium positioning, high ticket price, brand co-location logic, or when the user's priority_text contains terms like 'upscale', 'luxury', 'premium', 'high-end', 'boutique'.",
+        "example_contrast": "A luxury watch boutique scores high on luxury_cluster_fit near jewelers, galleries, and upscale restaurants — even if median resident income is moderate. It scores poorly in a high-income suburban residential tract with no commercial cluster."
+      },
+      "formula_template": "luxury_cluster_fit_need * ((1.0*premium_business_density + 1.0*commercial_property_value_proxy + 0.5*median_income + 0.5*(1 - anti_luxury_signal)) / 3.0)",
+      "proxy_construction_notes": {
+        "premium_business_density": "Spatial count of business license records in categories associated with premium retail and services (jewelry, galleries, high-end apparel, specialty food, luxury hospitality) within the tract. Requires business license category filtering. Can initially be approximated by manual category tagging of Montgomery business license data.",
+        "anti_luxury_signal": "Spatial count or density of business categories associated with value/discount retail (pawn shops, payday lenders, dollar stores, check-cashing services) normalized 0-1. Acts as a suppressor. Even a single such anchor in a tract significantly reduces luxury viability.",
+        "commercial_property_value_proxy": "Average assessed commercial parcel value per sq ft in the tract, normalized. Available from Montgomery GIS parcel data if commercial parcels are tagged. High values signal established premium commercial real estate."
+      }
+    },
+
+    "compatible_business_cluster": {
+      "primary_matches": [
+        "compatible_cluster_score"
+      ],
+      "secondary_matches": [
+        "business_density",
+        "commercial_activity_proxy"
+      ],
+      "notes": "This need replaces raw business_density as the location signal for businesses where what matters is not how many businesses exist nearby, but how many of the right kind exist. It depends entirely on the cluster_affinity data in business_families_cluster_patch.json. Without that data, fall back to business_density with a confidence penalty.",
+      "distinguishing_logic": {
+        "business_density_vs_compatible_cluster": "business_density counts all businesses equally. compatible_business_cluster weights nearby businesses by their affinity to the current business concept: synergistic businesses add positive signal, competitive businesses add a mild negative signal, neutral businesses add nothing.",
+        "when_to_activate": "Activate for all business families except warehouse_logistics_fulfillment and home_property_trade_service_office, where proximity to compatible businesses is not a primary driver.",
+        "example_contrast": "A yoga studio in a tract with 30 businesses: 10 are fast food, 10 are auto repair, 10 are health/wellness. Raw business_density = high. compatible_business_cluster score = high only for the 10 wellness businesses. The raw score misleads; the cluster score is honest."
+      },
+      "formula_template": "compatible_cluster_need * compatible_cluster_score",
+      "proxy_construction_notes": {
+        "compatible_cluster_score": {
+          "description": "For each business in the tract (from business license data), classify it into a business_family_id. Look up the requesting business's cluster_affinity for that family. Assign: synergistic = +1.0, neutral = 0.0, competitive = -0.5. Sum and normalize to [0, 1].",
+          "expression": "(sum of affinity_weights for all nearby classified businesses) / (count of classified businesses)",
+          "fallback_if_classification_unavailable": "Use business_density with a 0.3 confidence weight, and flag data_completeness_score accordingly.",
+          "data_dependency": "Requires business license category data to be classified into business_family_ids. This is the single most data-intensive new indicator — prioritize the classification mapping task."
+        }
+      }
+    },
+
+    "daytime_worker_concentration": {
+      "primary_matches": [
+        "office_worker_presence"
+      ],
+      "secondary_matches": [
+        "commercial_activity_proxy",
+        "transit_access"
+      ],
+      "notes": "This is the formalization of the 'white-collar daytime' question. It measures who is physically present in the tract during working hours — not who lives there. It is the primary need for food_beverage_quickservice, and a significant need for food_beverage_sitdown (lunch), fitness_wellness_studio (morning/noon/evening peaks), professional_office_service (referral proximity), and digital_creative_studio (talent clustering).",
+      "distinguishing_logic": {
+        "resident_income_vs_daytime_worker": "median_income tells you about residents. office_worker_presence tells you about the daytime population. In a pure office district, residents may be few and median residential income may be average — but the daytime population is large and white-collar. These two indicators can point in completely opposite directions and must not be conflated.",
+        "when_to_activate": "Activate whenever target_customer_origin contains daytime_worker with weight >= 0.25. Mandatory activation for food_beverage_quickservice, professional_office_service, digital_creative_studio.",
+        "example_contrast": "A sandwich shop near a government office complex scores high on daytime_worker_concentration even if surrounding residential income is moderate. The same shop in a high-income suburban residential tract with no nearby employers scores low — the residents who generate that income are not there at noon."
+      },
+      "formula_template": "daytime_worker_need * ((1.0*office_worker_presence + 0.5*commercial_activity_proxy + 0.5*transit_access) / 2.0)",
+      "proxy_construction_notes": {
+        "office_worker_presence": {
+          "description": "Estimate of the number of high-wage knowledge-economy workers employed within the tract during working hours.",
+          "primary_data_source": "U.S. Census LEHD LODES (Longitudinal Employer-Household Dynamics, Origin-Destination Employment Statistics). Freely available for Alabama at census block level. Aggregate to tract.",
+          "relevant_lodes_fields": [
+            "CE03: jobs with earnings greater than $3333/month (high-wage proxy)",
+            "CNS09 to CNS13: NAICS sectors for information, finance, insurance, real estate, professional/scientific/technical, management — white-collar proxies",
+            "CA01 age 29 or younger / CA02 age 30-54 / CA03 age 55+ — for age-band analysis"
+          ],
+          "normalization": "Normalize CE03 count within [min, max] across all Montgomery tracts to produce a [0, 1] score.",
+          "update_frequency": "LODES data is updated annually with approximately 18-month lag. Suitable for strategic analysis, not real-time.",
+          "fallback_if_lodes_unavailable": "Use commercial_activity_proxy + transit_access as a weak structural proxy, and set proxy_confidence_score accordingly. Flag explicitly in transparency panel."
+        }
+      }
+    }
+  },
+
+  "interaction_rules": {
+    "luxury_cluster_fit_and_affluent_area": "These two needs are intentionally distinct and may both be active simultaneously. A business may need both (luxury goods store in a wealthy residential+commercial district) or only one (luxury brand flagship in a mixed-income commercial hub). Never merge or deduplicate them.",
+    "compatible_business_cluster_and_business_density": "When compatible_business_cluster is active and classified business data is available, it REPLACES business_density as the primary cluster signal for that business concept. business_density remains in the model but its weight in fit scoring should be reduced to secondary-only when compatible_cluster_score is available.",
+    "daytime_worker_concentration_and_affluent_area": "These measure orthogonal things and must both be preserved. A high daytime_worker_concentration does not imply high median residential income. Scoring systems that conflate them will systematically misrank tracts for quick-service and professional office concepts."
+  },
+
+  "ui_transparency_recommendations": {
+    "luxury_cluster_fit": "Show as 'Premium cluster signal' in the transparency panel. Explain: 'Measures whether the commercial environment signals premium positioning — based on existing business types and commercial property values, not just resident income.'",
+    "compatible_business_cluster": "Show as 'Neighborhood fit for this type'. Explain: 'Counts how many nearby businesses are synergistic, neutral, or competitive with your concept. A high score means the commercial mix supports your activity; a low score means the surrounding businesses attract a different customer.'",
+    "daytime_worker_concentration": "Show as 'Daytime workforce presence'. Explain: 'Estimates how many knowledge-economy workers are physically present in this area during working hours, based on federal employment data (LEHD). Distinct from resident income — measures who is here at noon, not who lives here.'"
+  }
+}

@@ -1,0 +1,166 @@
+{
+  "$schema_version": "1.1",
+  "$patch_target": "interpreter_output_schema.json",
+  "$patch_type": "schema_extension",
+  "description": "Adds target_customer_origin to the interpreter output contract, extends the location_needs block with three new needs, and defines the activation rules that connect interpreted intent to the new scoring layer. Merge into the existing schema by section.",
+
+  "governance_rules": {
+    "interpreter_must_not_decide_legal_compliance": true,
+    "interpreter_must_not_decide_final_recommendation": true,
+    "interpreter_must_not_decide_zoning_validity": true,
+    "interpreter_must_produce_target_customer_origin": true,
+    "interpreter_must_activate_new_needs_when_signals_present": true,
+    "new_fields_are_required_not_optional": true
+  },
+
+  "enum_additions": {
+    "target_customer_origin_values": [
+      "resident",
+      "daytime_worker",
+      "destination_visitor",
+      "passing_traffic"
+    ],
+    "note": "These four values are exhaustive and mutually exclusive as categories. A business may draw from multiple origins — hence the weighted structure. Weights must sum to 1.0."
+  },
+
+  "output_template_additions": {
+    "section": "Add these fields to the output_template object alongside existing fields",
+
+    "target_customer_origin": {
+      "type": "array",
+      "required": true,
+      "items": {
+        "origin": "one of: resident | daytime_worker | destination_visitor | passing_traffic",
+        "weight": "float [0.0, 1.0]"
+      },
+      "constraint": "weights must sum to 1.0",
+      "purpose": "Declares the origin mix of the primary customer base. Drives which tract indicators are weighted in fit scoring. Must be populated by the interpreter from business description and priority_text signals.",
+      "fallback_if_ambiguous": "Use the default weights from business_families_cluster_patch.json for the matched business_family_id. Flag in interpretation_notes that defaults were applied."
+    }
+  },
+
+  "location_needs_additions": {
+    "section": "Add these three fields inside location_needs in the output_template",
+    "new_fields": {
+      "luxury_cluster_fit": {
+        "type": "float [0.0, 1.0]",
+        "default": 0.0,
+        "activation_signals": [
+          "priority_text contains: upscale, luxury, premium, high-end, boutique, exclusive, prestige",
+          "business description implies high ticket price or brand co-location logic",
+          "business_family_id is retail_storefront and description mentions specialty or artisan positioning",
+          "user explicitly states target customer is high-spend"
+        ],
+        "activation_logic": "If any activation signal is present, set to a value between 0.6 and 0.95 depending on signal strength. If no signal is present, set to 0.0 — do not default to a non-zero value.",
+        "independence_note": "This is independent of affluent_area. Both may be non-zero simultaneously. Never set one based on the value of the other."
+      },
+      "compatible_business_cluster": {
+        "type": "float [0.0, 1.0]",
+        "default": 0.5,
+        "activation_signals": [
+          "Any business concept where co-location logic matters (most families except warehouse and trade-office)",
+          "User mentions 'near other shops like mine', 'good neighborhood for this type', 'established area for X'",
+          "business_family_id has non-empty synergistic list in cluster_affinity"
+        ],
+        "activation_logic": "Default to 0.5 for all business families with meaningful cluster_affinity data. Set higher (0.7-0.9) when the business concept is explicitly cluster-dependent (luxury retail, restaurant row, wellness strip, creative district, professional services hub). Set lower (0.2-0.3) for back-office or logistics operations.",
+        "independence_note": "This is not a replacement for footfall or visibility. It specifically measures quality-of-cluster, not quantity of traffic."
+      },
+      "daytime_worker_concentration": {
+        "type": "float [0.0, 1.0]",
+        "default": 0.0,
+        "activation_signals": [
+          "target_customer_origin contains daytime_worker with weight >= 0.25",
+          "business description mentions: lunch crowd, office workers, B2B, corporate clients, weekday demand",
+          "business_family_id is one of: food_beverage_quickservice, professional_office_service, digital_creative_studio",
+          "business_family_id is food_beverage_sitdown with daytime orientation",
+          "business_family_id is fitness_wellness_studio (morning/noon peak pattern)"
+        ],
+        "mandatory_activation": {
+          "business_family_ids": [
+            "food_beverage_quickservice",
+            "professional_office_service",
+            "digital_creative_studio"
+          ],
+          "minimum_value_when_mandatory": 0.6,
+          "rationale": "These three families have daytime_worker as their dominant customer origin. Failing to activate this need for them produces systematically incorrect location scores."
+        },
+        "activation_logic": "For mandatory families, set to minimum 0.6 regardless of explicit user signals. For other families, activate (0.4-0.8) when target_customer_origin daytime_worker weight >= 0.25. Set to 0.0 only when daytime_worker weight is below 0.15.",
+        "independence_note": "This is not the same as affluent_area or demand_score. A high daytime_worker_concentration in a tract with average residential income is a real and valid signal. Do not suppress it based on income indicators."
+      }
+    }
+  },
+
+  "interpreter_activation_rules": {
+    "description": "Rules the interpreter must apply to set the three new location_needs fields. These are deterministic — not judgment calls.",
+
+    "rule_1_luxury_cluster_fit": {
+      "condition": "priority_text OR business_text contains any luxury signal keyword",
+      "luxury_signal_keywords": ["upscale", "luxury", "premium", "high-end", "boutique", "exclusive", "prestige", "designer", "artisan", "bespoke", "curated"],
+      "action": "Set luxury_cluster_fit to 0.75 (moderate signal) or 0.90 (strong/explicit signal). Add to interpretation_notes: 'Luxury cluster fit activated based on premium positioning signal in description.'"
+    },
+
+    "rule_2_compatible_business_cluster": {
+      "condition": "business_family_id has non-empty synergistic list AND is not warehouse_logistics_fulfillment or home_property_trade_service_office",
+      "action": "Set compatible_business_cluster to 0.5 as baseline. Adjust upward if cluster_dependency_signals are present.",
+      "cluster_dependency_signals": [
+        "User mentions wanting to be 'near similar businesses'",
+        "Business concept is a destination type (luxury, specialty, wellness)",
+        "business_family_id is one of: bar_nightlife_entertainment, professional_office_service, health_medical_therapy, digital_creative_studio, workshop_maker_light_production"
+      ]
+    },
+
+    "rule_3_daytime_worker_concentration": {
+      "condition": "business_family_id in mandatory list OR target_customer_origin daytime_worker weight >= 0.25",
+      "action_mandatory": "Set daytime_worker_concentration to minimum 0.6. Add to interpretation_notes: 'Daytime worker concentration mandatory for this business family — LEHD office worker data is the primary tract signal for this concept.'",
+      "action_conditional": "Set daytime_worker_concentration to 0.4 + (0.4 * daytime_worker_weight). Example: daytime_worker weight 0.40 → daytime_worker_concentration = 0.4 + (0.4 * 0.40) = 0.56."
+    }
+  },
+
+  "example_output_delta": {
+    "description": "Shows only the additions to the existing wine bar example — not a full replacement",
+    "business_text": "small evening wine bar with tapas",
+    "additions_to_location_needs": {
+      "luxury_cluster_fit": 0.0,
+      "compatible_business_cluster": 0.75,
+      "daytime_worker_concentration": 0.30
+    },
+    "target_customer_origin": [
+      {"origin": "destination_visitor", "weight": 0.45},
+      {"origin": "daytime_worker",      "weight": 0.25},
+      {"origin": "resident",            "weight": 0.20},
+      {"origin": "passing_traffic",     "weight": 0.10}
+    ],
+    "interpretation_notes_additions": [
+      "luxury_cluster_fit not activated: no premium positioning signal detected in description.",
+      "compatible_business_cluster set to 0.75: wine bar has strong synergistic affinity with food_beverage_sitdown and bar_nightlife_entertainment — cluster quality matters significantly for this concept.",
+      "daytime_worker_concentration set to 0.30: after-work transition demand is real but secondary to evening destination draw — daytime_worker weight 0.25 triggers conditional activation."
+    ]
+  },
+
+  "example_output_luxury_contrast": {
+    "description": "Contrasting example: upscale ballet shoe boutique — shows how the same business_family_id produces very different need scores based on positioning signals",
+    "business_text": "ballet and dance shoe boutique, premium brands, target serious dancers and dance schools",
+    "priority_text": "upscale, specialty — not a mass-market shoe shop",
+    "business_family_id": "retail_storefront",
+    "additions_to_location_needs": {
+      "luxury_cluster_fit": 0.80,
+      "compatible_business_cluster": 0.85,
+      "daytime_worker_concentration": 0.10,
+      "affluent_area": 0.50,
+      "footfall": 0.30
+    },
+    "target_customer_origin": [
+      {"origin": "destination_visitor", "weight": 0.65},
+      {"origin": "resident",            "weight": 0.20},
+      {"origin": "daytime_worker",      "weight": 0.10},
+      {"origin": "passing_traffic",     "weight": 0.05}
+    ],
+    "interpretation_notes": [
+      "luxury_cluster_fit activated at 0.80: explicit premium signal in priority_text ('upscale, specialty').",
+      "compatible_business_cluster set to 0.85: this concept depends on proximity to dance studios, performing arts venues, and arts education — synergistic cluster is a primary viability condition.",
+      "footfall reduced to 0.30 vs standard retail_storefront 0.85: destination_visitor pattern means customers travel specifically — passive street footfall is not the draw.",
+      "daytime_worker_concentration set low at 0.10: target customer is a dancer or dance school buyer, not an office worker.",
+      "This illustrates a core distinction: two retail_storefront businesses can have radically different location logic based on positioning."
+    ]
+  }
+}

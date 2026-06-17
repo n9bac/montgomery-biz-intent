@@ -1,0 +1,495 @@
+{
+  "$schema_version": "1.1",
+  "$patch_target": "business_families.json",
+  "$patch_type": "field_extension",
+  "description": "Adds cluster_affinity and target_customer_origin fields to each business family. These fields are additive — they do not replace any existing field. Merge by matching on 'id'.",
+  "governance_rules": {
+    "must_not_decide_legal_compliance": true,
+    "must_not_decide_zoning_validity": true,
+    "must_not_decide_final_recommendation": true,
+    "must_remain_explainable": true,
+    "affinity_values_are_directional_not_symmetric": true,
+    "affinity_note": "synergistic means co-location increases mutual demand (agglomeration effect). competitive means co-location may cannibalize demand. neutral means no meaningful interaction expected."
+  },
+
+  "new_field_definitions": {
+    "target_customer_origin": {
+      "type": "array of weighted objects",
+      "allowed_origins": ["resident", "daytime_worker", "destination_visitor", "passing_traffic"],
+      "weight_range": [0.0, 1.0],
+      "weight_sum_policy": "weights should sum to 1.0",
+      "purpose": "Declares where the primary customer base comes from. Drives which tract indicators are most relevant: resident → income/demographics; daytime_worker → LEHD office worker concentration; destination_visitor → regional draw, premium cluster; passing_traffic → transit/footfall/road counts.",
+      "scoring_implication": "The fit score should weight tract indicators proportionally to this origin mix. A business with 0.8 daytime_worker weight should care far more about office_worker_presence than about median_age of residents."
+    },
+    "cluster_affinity": {
+      "type": "object with three lists",
+      "structure": {
+        "synergistic": "list of business_family_ids — co-location increases mutual demand",
+        "competitive": "list of business_family_ids — co-location may reduce demand or margin",
+        "neutral": "list of business_family_ids — no meaningful interaction expected"
+      },
+      "purpose": "Enables category-aware density scoring. A tract's commercial density should be weighted by the affinity composition of that density, not treated as a flat count.",
+      "scoring_implication": "compatible_business_cluster indicator = weighted sum of nearby businesses by affinity value (synergistic: +1.0, neutral: 0.0, competitive: -0.5). This replaces raw business_density for cluster-sensitive business types."
+    }
+  },
+
+  "patches": [
+    {
+      "id": "retail_storefront",
+      "target_customer_origin": [
+        {"origin": "passing_traffic",     "weight": 0.40},
+        {"origin": "resident",            "weight": 0.35},
+        {"origin": "daytime_worker",      "weight": 0.15},
+        {"origin": "destination_visitor", "weight": 0.10}
+      ],
+      "cluster_affinity": {
+        "synergistic": [
+          "hybrid_retail_service",
+          "beauty_personal_service",
+          "food_beverage_quickservice",
+          "food_beverage_sitdown"
+        ],
+        "competitive": [
+          "retail_storefront"
+        ],
+        "neutral": [
+          "professional_office_service",
+          "health_medical_therapy",
+          "warehouse_logistics_fulfillment",
+          "workshop_maker_light_production",
+          "digital_creative_studio",
+          "home_property_trade_service_office"
+        ]
+      },
+      "cluster_affinity_notes": [
+        "Retail storefronts benefit from being in active mixed-use strips where complementary services draw dwell time.",
+        "Competition from identical retail type is real but manageable if product differentiation is strong.",
+        "In a luxury positioning scenario, competitive becomes synergistic — see luxury_cluster_fit need."
+      ]
+    },
+
+    {
+      "id": "food_beverage_sitdown",
+      "target_customer_origin": [
+        {"origin": "daytime_worker",      "weight": 0.40},
+        {"origin": "destination_visitor", "weight": 0.30},
+        {"origin": "resident",            "weight": 0.20},
+        {"origin": "passing_traffic",     "weight": 0.10}
+      ],
+      "cluster_affinity": {
+        "synergistic": [
+          "bar_nightlife_entertainment",
+          "retail_storefront",
+          "hybrid_retail_service",
+          "food_beverage_quickservice",
+          "fitness_wellness_studio"
+        ],
+        "competitive": [
+          "food_beverage_sitdown"
+        ],
+        "neutral": [
+          "warehouse_logistics_fulfillment",
+          "workshop_maker_light_production",
+          "home_property_trade_service_office",
+          "digital_creative_studio"
+        ]
+      },
+      "cluster_affinity_notes": [
+        "Sit-down restaurants benefit strongly from daytime worker lunch demand.",
+        "Restaurant rows show agglomeration: competing restaurants often increase the area's collective draw.",
+        "Evening positioning shifts weight toward destination_visitor and nightlife synergy."
+      ]
+    },
+
+    {
+      "id": "food_beverage_quickservice",
+      "target_customer_origin": [
+        {"origin": "daytime_worker",  "weight": 0.50},
+        {"origin": "passing_traffic", "weight": 0.30},
+        {"origin": "resident",        "weight": 0.15},
+        {"origin": "destination_visitor", "weight": 0.05}
+      ],
+      "cluster_affinity": {
+        "synergistic": [
+          "professional_office_service",
+          "digital_creative_studio",
+          "health_medical_therapy",
+          "retail_storefront",
+          "fitness_wellness_studio"
+        ],
+        "competitive": [
+          "food_beverage_quickservice"
+        ],
+        "neutral": [
+          "bar_nightlife_entertainment",
+          "warehouse_logistics_fulfillment",
+          "workshop_maker_light_production"
+        ]
+      },
+      "cluster_affinity_notes": [
+        "Quick service is the most daytime_worker-dependent family in the entire taxonomy.",
+        "Proximity to office clusters is the single strongest location signal for this type.",
+        "Transit stops amplify passing_traffic significantly for this format."
+      ]
+    },
+
+    {
+      "id": "bar_nightlife_entertainment",
+      "target_customer_origin": [
+        {"origin": "destination_visitor", "weight": 0.45},
+        {"origin": "daytime_worker",      "weight": 0.30},
+        {"origin": "resident",            "weight": 0.15},
+        {"origin": "passing_traffic",     "weight": 0.10}
+      ],
+      "cluster_affinity": {
+        "synergistic": [
+          "food_beverage_sitdown",
+          "bar_nightlife_entertainment",
+          "retail_storefront",
+          "fitness_wellness_studio"
+        ],
+        "competitive": [],
+        "neutral": [
+          "professional_office_service",
+          "health_medical_therapy",
+          "education_training_child_service",
+          "warehouse_logistics_fulfillment",
+          "home_property_trade_service_office"
+        ]
+      },
+      "cluster_affinity_notes": [
+        "Nightlife is one of the strongest agglomeration-positive categories: competing venues increase the district's gravitational pull.",
+        "After-work transition from daytime_worker to destination_visitor is a key demand pattern.",
+        "Child-sensitive and medical uses nearby are risk signals, not synergies."
+      ]
+    },
+
+    {
+      "id": "professional_office_service",
+      "target_customer_origin": [
+        {"origin": "daytime_worker",      "weight": 0.55},
+        {"origin": "destination_visitor", "weight": 0.25},
+        {"origin": "resident",            "weight": 0.15},
+        {"origin": "passing_traffic",     "weight": 0.05}
+      ],
+      "cluster_affinity": {
+        "synergistic": [
+          "professional_office_service",
+          "digital_creative_studio",
+          "health_medical_therapy",
+          "food_beverage_quickservice",
+          "food_beverage_sitdown"
+        ],
+        "competitive": [],
+        "neutral": [
+          "retail_storefront",
+          "bar_nightlife_entertainment",
+          "warehouse_logistics_fulfillment",
+          "fitness_wellness_studio"
+        ]
+      },
+      "cluster_affinity_notes": [
+        "Professional services cluster is strongly self-reinforcing: lawyers near accountants near consultants create referral ecosystems.",
+        "Being in an established professional cluster signals legitimacy to clients.",
+        "Note: competitive list is empty — competing firms often increase the area's credibility rather than cannibalizing it."
+      ]
+    },
+
+    {
+      "id": "health_medical_therapy",
+      "target_customer_origin": [
+        {"origin": "resident",            "weight": 0.50},
+        {"origin": "destination_visitor", "weight": 0.30},
+        {"origin": "daytime_worker",      "weight": 0.15},
+        {"origin": "passing_traffic",     "weight": 0.05}
+      ],
+      "cluster_affinity": {
+        "synergistic": [
+          "health_medical_therapy",
+          "professional_office_service",
+          "beauty_personal_service",
+          "fitness_wellness_studio"
+        ],
+        "competitive": [],
+        "neutral": [
+          "retail_storefront",
+          "food_beverage_quickservice",
+          "bar_nightlife_entertainment",
+          "warehouse_logistics_fulfillment"
+        ]
+      },
+      "cluster_affinity_notes": [
+        "Medical uses agglomerate strongly — patients bundle errands when visiting healthcare districts.",
+        "A pediatric practice has very different resident demographics requirements than a geriatric practice: age-band matching is critical and not captured by median_age alone.",
+        "Specialist practices have larger destination_visitor radius than GPs."
+      ]
+    },
+
+    {
+      "id": "beauty_personal_service",
+      "target_customer_origin": [
+        {"origin": "resident",            "weight": 0.55},
+        {"origin": "daytime_worker",      "weight": 0.25},
+        {"origin": "passing_traffic",     "weight": 0.15},
+        {"origin": "destination_visitor", "weight": 0.05}
+      ],
+      "cluster_affinity": {
+        "synergistic": [
+          "retail_storefront",
+          "hybrid_retail_service",
+          "fitness_wellness_studio",
+          "health_medical_therapy",
+          "food_beverage_quickservice"
+        ],
+        "competitive": [
+          "beauty_personal_service"
+        ],
+        "neutral": [
+          "professional_office_service",
+          "warehouse_logistics_fulfillment",
+          "digital_creative_studio"
+        ]
+      },
+      "cluster_affinity_notes": [
+        "Repeat neighborhood clientele is the dominant pattern — proximity to dense residential is more important than premium location.",
+        "At the luxury end (high-end salon), the model shifts: destination_visitor weight rises, luxury_cluster_fit need activates.",
+        "Competition is real at commodity price points; differentiation (specialty, premium) reduces it."
+      ]
+    },
+
+    {
+      "id": "fitness_wellness_studio",
+      "target_customer_origin": [
+        {"origin": "resident",        "weight": 0.45},
+        {"origin": "daytime_worker",  "weight": 0.40},
+        {"origin": "passing_traffic", "weight": 0.10},
+        {"origin": "destination_visitor", "weight": 0.05}
+      ],
+      "cluster_affinity": {
+        "synergistic": [
+          "food_beverage_quickservice",
+          "food_beverage_sitdown",
+          "beauty_personal_service",
+          "health_medical_therapy",
+          "education_training_child_service"
+        ],
+        "competitive": [
+          "fitness_wellness_studio"
+        ],
+        "neutral": [
+          "warehouse_logistics_fulfillment",
+          "home_property_trade_service_office",
+          "professional_office_service"
+        ]
+      },
+      "cluster_affinity_notes": [
+        "Morning and evening peaks mean daytime_worker and resident weights are nearly equal.",
+        "Boutique fitness (yoga, pilates, barre) shows strong agglomeration with health-adjacent retail and cafes — the 'wellness strip' pattern.",
+        "Large parking_need reflects suburban membership model; transit-accessible urban studios shift the weight toward daytime_worker."
+      ]
+    },
+
+    {
+      "id": "education_training_child_service",
+      "target_customer_origin": [
+        {"origin": "resident",            "weight": 0.65},
+        {"origin": "daytime_worker",      "weight": 0.20},
+        {"origin": "destination_visitor", "weight": 0.10},
+        {"origin": "passing_traffic",     "weight": 0.05}
+      ],
+      "cluster_affinity": {
+        "synergistic": [
+          "fitness_wellness_studio",
+          "beauty_personal_service",
+          "hybrid_retail_service",
+          "food_beverage_quickservice"
+        ],
+        "competitive": [
+          "education_training_child_service"
+        ],
+        "neutral": [
+          "bar_nightlife_entertainment",
+          "warehouse_logistics_fulfillment",
+          "professional_office_service"
+        ]
+      },
+      "cluster_affinity_notes": [
+        "Child-oriented services depend strongly on family_proxy and the 25-44 age band of parents — median_age is insufficient.",
+        "Drop-off/pick-up traffic patterns create very specific parking and road access needs.",
+        "Adult training (language school, coding academy) shifts target_customer_origin toward daytime_worker significantly."
+      ]
+    },
+
+    {
+      "id": "home_property_trade_service_office",
+      "target_customer_origin": [
+        {"origin": "daytime_worker",      "weight": 0.50},
+        {"origin": "resident",            "weight": 0.30},
+        {"origin": "passing_traffic",     "weight": 0.10},
+        {"origin": "destination_visitor", "weight": 0.10}
+      ],
+      "cluster_affinity": {
+        "synergistic": [
+          "workshop_maker_light_production",
+          "home_property_trade_service_office",
+          "warehouse_logistics_fulfillment"
+        ],
+        "competitive": [],
+        "neutral": [
+          "retail_storefront",
+          "food_beverage_sitdown",
+          "health_medical_therapy",
+          "digital_creative_studio"
+        ]
+      },
+      "cluster_affinity_notes": [
+        "These are back-office operations. The 'customer' is often another business, not a resident.",
+        "Vehicle logistics and yard space matter more than any demographic signal.",
+        "Clustering with other service businesses creates convenience for shared suppliers."
+      ]
+    },
+
+    {
+      "id": "workshop_maker_light_production",
+      "target_customer_origin": [
+        {"origin": "destination_visitor", "weight": 0.45},
+        {"origin": "daytime_worker",      "weight": 0.30},
+        {"origin": "resident",            "weight": 0.15},
+        {"origin": "passing_traffic",     "weight": 0.10}
+      ],
+      "cluster_affinity": {
+        "synergistic": [
+          "workshop_maker_light_production",
+          "digital_creative_studio",
+          "hybrid_retail_service",
+          "home_property_trade_service_office"
+        ],
+        "competitive": [],
+        "neutral": [
+          "food_beverage_sitdown",
+          "retail_storefront",
+          "health_medical_therapy"
+        ]
+      },
+      "cluster_affinity_notes": [
+        "Maker/artisan clusters are self-reinforcing: a district known for craft attracts buyers and collaborators alike.",
+        "B2B and B2C mixed: destination_visitor comes to buy; daytime_worker comes to collaborate or supply.",
+        "Gentrification signal: maker clusters often precede premium retail by 3-7 years in urban transitions."
+      ]
+    },
+
+    {
+      "id": "warehouse_logistics_fulfillment",
+      "target_customer_origin": [
+        {"origin": "daytime_worker",      "weight": 0.60},
+        {"origin": "destination_visitor", "weight": 0.25},
+        {"origin": "resident",            "weight": 0.10},
+        {"origin": "passing_traffic",     "weight": 0.05}
+      ],
+      "cluster_affinity": {
+        "synergistic": [
+          "warehouse_logistics_fulfillment",
+          "home_property_trade_service_office",
+          "workshop_maker_light_production"
+        ],
+        "competitive": [],
+        "neutral": [
+          "retail_storefront",
+          "food_beverage_sitdown",
+          "health_medical_therapy",
+          "fitness_wellness_studio",
+          "digital_creative_studio"
+        ]
+      },
+      "cluster_affinity_notes": [
+        "Almost entirely B2B. Resident demographics are nearly irrelevant.",
+        "Road network quality and truck access are the dominant location signals.",
+        "Clustered logistics zones reduce per-unit infrastructure cost — agglomeration is economically rational."
+      ]
+    },
+
+    {
+      "id": "hybrid_retail_service",
+      "target_customer_origin": [
+        {"origin": "resident",            "weight": 0.40},
+        {"origin": "passing_traffic",     "weight": 0.25},
+        {"origin": "daytime_worker",      "weight": 0.20},
+        {"origin": "destination_visitor", "weight": 0.15}
+      ],
+      "cluster_affinity": {
+        "synergistic": [
+          "retail_storefront",
+          "beauty_personal_service",
+          "food_beverage_quickservice",
+          "fitness_wellness_studio",
+          "education_training_child_service"
+        ],
+        "competitive": [
+          "hybrid_retail_service"
+        ],
+        "neutral": [
+          "warehouse_logistics_fulfillment",
+          "professional_office_service",
+          "digital_creative_studio"
+        ]
+      },
+      "cluster_affinity_notes": [
+        "Hybrid concepts are most sensitive to the mix of the immediate street — they need complementary activity, not just density.",
+        "classification_ambiguity is high: the dominant activity (retail vs. service) determines which origin weights apply.",
+        "A florist-with-workshop leans destination_visitor; a bike-repair-and-sales leans resident."
+      ]
+    },
+
+    {
+      "id": "digital_creative_studio",
+      "target_customer_origin": [
+        {"origin": "daytime_worker",      "weight": 0.60},
+        {"origin": "destination_visitor", "weight": 0.25},
+        {"origin": "resident",            "weight": 0.10},
+        {"origin": "passing_traffic",     "weight": 0.05}
+      ],
+      "cluster_affinity": {
+        "synergistic": [
+          "digital_creative_studio",
+          "professional_office_service",
+          "workshop_maker_light_production",
+          "food_beverage_sitdown",
+          "food_beverage_quickservice"
+        ],
+        "competitive": [],
+        "neutral": [
+          "retail_storefront",
+          "warehouse_logistics_fulfillment",
+          "home_property_trade_service_office",
+          "beauty_personal_service"
+        ]
+      },
+      "cluster_affinity_notes": [
+        "Creative clusters are the strongest agglomeration-positive category after nightlife and professional services.",
+        "Talent attraction is the primary location logic, not customer footfall.",
+        "Transit access matters more than parking: knowledge workers skew toward walkable, transit-served urban cores.",
+        "Proximity to cafes and restaurants is a soft retention signal ('amenity richness')."
+      ]
+    },
+
+    {
+      "id": "emerging_or_hard_to_classify",
+      "target_customer_origin": [
+        {"origin": "destination_visitor", "weight": 0.40},
+        {"origin": "daytime_worker",      "weight": 0.30},
+        {"origin": "resident",            "weight": 0.20},
+        {"origin": "passing_traffic",     "weight": 0.10}
+      ],
+      "cluster_affinity": {
+        "synergistic": [],
+        "competitive": [],
+        "neutral": []
+      },
+      "cluster_affinity_notes": [
+        "Cannot be assigned until the concept is decomposed into its dominant operational behaviors.",
+        "Default origin weights are a placeholder — they should be overwritten after clarification.",
+        "This family should trigger the clarification_question flow before any scoring is attempted."
+      ]
+    }
+  ]
+}
