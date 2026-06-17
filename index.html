@@ -42,14 +42,14 @@
     <!-- React, ReactDOM, Babel -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.23.10/babel.min.js" crossorigin="anonymous"></script>
     
     <!-- Leaflet and Turf -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/@turf/turf@6/turf.min.js" crossorigin="anonymous"></script>
 
     <!-- Gemini SDK via CDN -->
-    <script type="module" crossorigin="anonymous">
+    <script type="module" crossorigin="anonymous" data-ignore="true">
         import('https://esm.sh/@google/genai@2.0.0').then(mod => {
             window.GoogleGenAI = mod.GoogleGenAI;
             console.log("Gemini SDK Loaded Successfully");
