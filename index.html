@@ -131,7 +131,14 @@
 					setApiKeySubmitted(true);
 				} catch(err) {
 					setKeyConfirmed(false);
-					alert("Key validation failed: " + err.message);
+					const msg = err.message || '';
+					if (msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand')) {
+						alert("The Gemini model is temporarily busy (high demand). Your key is likely valid — please wait a minute and try confirming again.");
+					} else if (msg.includes('400') || msg.includes('API_KEY') || msg.includes('invalid')) {
+						alert("Key not recognised. Please check that you have copied the full API key from Google AI Studio and try again.");
+					} else {
+						alert("Could not reach the Gemini service. Please check your internet connection and try again.");
+					}
 				}
 			};
             const mapRef = useRef(null);
@@ -1873,9 +1880,13 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                     {error && (
                         <div className="absolute inset-0 z-[2000] bg-white/90 flex flex-col items-center justify-center p-8 text-center">
                             <div className="bg-white p-8 rounded-3xl shadow-2xl border border-red-100 max-w-md">
-                                <h2 className="text-xl font-black text-slate-800 mb-2 uppercase tracking-tight text-red-600">Error</h2>
-                                <p className="text-slate-500 text-sm mb-6 leading-relaxed">{error}</p>
-                                <button onClick={() => window.location.reload()} className="w-full bg-slate-800 text-white font-bold py-3 rounded-xl">RELOAD</button>
+                                <h2 className="text-xl font-black text-slate-800 mb-2 uppercase tracking-tight text-red-600">Notice</h2>
+                                <p className="text-slate-500 text-sm mb-2 leading-relaxed">{error}</p>
+                                <p className="text-slate-400 text-xs mb-6 leading-relaxed">The backup profile shown below uses simplified logic only. You can dismiss this notice and review the backup result, or try again with a different description.</p>
+                                <div className="flex gap-3">
+                                    <button onClick={() => setError(null)} className="flex-1 bg-slate-800 text-white font-bold py-3 rounded-xl text-sm">VIEW BACKUP RESULT</button>
+                                    <button onClick={() => { setError(null); setInterpretedIntent(null); setIsMockMode(false); }} className="flex-1 bg-white border border-slate-300 text-slate-600 font-bold py-3 rounded-xl text-sm">TRY AGAIN</button>
+                                </div>
                             </div>
                         </div>
                     )}
