@@ -129,6 +129,7 @@
 					});
 					setKeyConfirmed(true);
 					setApiKeySubmitted(true);
+					setIsMockMode(false);
 				} catch(err) {
 					setKeyConfirmed(false);
 					const msg = err.message || '';
@@ -488,7 +489,20 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
 
                 } catch (err) {
                     console.error("Gemini Interpretation Failed", err);
-                    setError("AI interpretation failed. Using backup logic.");
+                    const msg = err.message || '';
+                    let reason;
+                    if (msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand')) {
+                        reason = "The Gemini AI service is temporarily overloaded on Google's side (error 503, high demand). This is not a fault in this application — it is a transient capacity issue on the AI provider's end, and usually resolves within minutes. Your business description below was processed instead by simplified backup logic, which has no real analytical value.";
+                    } else if (msg.includes('400') || msg.includes('API_KEY') || msg.includes('invalid')) {
+                        reason = "The Gemini API key was rejected. Please check that a valid key is entered. Your business description below was processed instead by simplified backup logic, which has no real analytical value.";
+                    } else if (msg.startsWith('Validation Error')) {
+                        reason = "The AI Interpreter responded, but its output did not pass this application's structural validation checks (" + msg.replace('Validation Error: ', '') + "). This is a safeguard, not a crash — malformed AI output is never allowed to reach the scoring engine. Your business description below was processed instead by simplified backup logic, which has no real analytical value.";
+                    } else if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('network')) {
+                        reason = "A network connection to the Gemini API could not be established. This may be a temporary connectivity issue. Your business description below was processed instead by simplified backup logic, which has no real analytical value.";
+                    } else {
+                        reason = "The AI Interpreter could not complete this request (" + (msg || 'unknown error') + "). Your business description below was processed instead by simplified backup logic, which has no real analytical value.";
+                    }
+                    setError(reason);
                     runMockLogic();
                 } finally {
                     setIsInterpreting(false);
@@ -1268,22 +1282,36 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                 }
             }, [viewMode]);
 
+            useEffect(() => {
+                if (isMockMode && (uiMode === 'map' || uiMode === 'report')) {
+                    setUiMode('intent');
+                }
+            }, [isMockMode]);
+
             return (
                 <div className="relative w-full h-screen overflow-hidden flex flex-col md:flex-row">
                     {/* Navigation */}					
 					{isMockMode && (
 						<div className="absolute top-0 left-0 right-0 z-[2000] bg-amber-500 text-white text-center py-2 text-[11px] font-black uppercase tracking-widest">
-							⚠ Mock Mode Active — AI interpreter unavailable. Results are illustrative only and have no analytical value.
+							⚠ Mock Mode Active — {error && error.includes('Google') ? 'AI provider temporarily unavailable (not an app fault)' : 'AI interpreter unavailable'}. Results are illustrative only and have no analytical value.
 						</div>
 					)}
-                    <div className="absolute top-4 right-4 z-[1000] flex gap-2">
+                    <div className={`absolute right-4 z-[1000] flex gap-2 transition-all ${isMockMode ? 'top-12' : 'top-4'}`}>
                         <button onClick={() => setUiMode('intent')} className={`px-4 py-2 rounded-full text-xs font-bold shadow-lg transition ${uiMode === 'intent' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600'}`}>INTENT</button>
-                        <button onClick={() => setUiMode('map')} className={`px-4 py-2 rounded-full text-xs font-bold shadow-lg transition ${uiMode === 'map' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600'}`}>MAP</button>
-                        <button onClick={() => setUiMode('report')} className={`px-4 py-2 rounded-full text-xs font-bold shadow-lg transition ${uiMode === 'report' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600'}`}>REPORT</button>
+                        <button
+                            onClick={() => { if (!isMockMode) setUiMode('map'); }}
+                            disabled={isMockMode}
+                            title={isMockMode ? 'Unavailable while using simplified backup logic' : ''}
+                            className={`px-4 py-2 rounded-full text-xs font-bold shadow-lg transition ${uiMode === 'map' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600'} ${isMockMode ? 'opacity-40 cursor-not-allowed' : ''}`}>MAP</button>
+                        <button
+                            onClick={() => { if (!isMockMode) setUiMode('report'); }}
+                            disabled={isMockMode}
+                            title={isMockMode ? 'Unavailable while using simplified backup logic' : ''}
+                            className={`px-4 py-2 rounded-full text-xs font-bold shadow-lg transition ${uiMode === 'report' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600'} ${isMockMode ? 'opacity-40 cursor-not-allowed' : ''}`}>REPORT</button>
                     </div>
 
                     {/* INTENT SCREEN */}
-                    <div className={`flex-1 bg-slate-50 overflow-y-auto p-8 pt-20 ${uiMode === 'intent' ? '' : 'hidden'}`}>
+                    <div className={`flex-1 bg-slate-50 overflow-y-auto p-8 ${isMockMode ? 'pt-28' : 'pt-20'} ${uiMode === 'intent' ? '' : 'hidden'}`}>
                         <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
                             {/* Input Panel */}
                             <div className="space-y-6">
@@ -1877,19 +1905,24 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                         </div>
                     )}
 
-                    {error && (
+                    {error && (() => {
+                        const isExternal = error.includes('Google') || error.includes('Gemini AI service') || error.includes('network connection');
+                        return (
                         <div className="absolute inset-0 z-[2000] bg-white/90 flex flex-col items-center justify-center p-8 text-center">
-                            <div className="bg-white p-8 rounded-3xl shadow-2xl border border-red-100 max-w-md">
-                                <h2 className="text-xl font-black text-slate-800 mb-2 uppercase tracking-tight text-red-600">Notice</h2>
-                                <p className="text-slate-500 text-sm mb-2 leading-relaxed">{error}</p>
-                                <p className="text-slate-400 text-xs mb-6 leading-relaxed">The backup profile shown below uses simplified logic only. You can dismiss this notice and review the backup result, or try again with a different description.</p>
+                            <div className={`bg-white p-8 rounded-3xl shadow-2xl border max-w-md ${isExternal ? 'border-amber-200' : 'border-red-100'}`}>
+                                <h2 className={`text-xl font-black mb-2 uppercase tracking-tight ${isExternal ? 'text-amber-600' : 'text-red-600'}`}>
+                                    {isExternal ? 'AI Provider Temporarily Unavailable' : 'AI Interpretation Issue'}
+                                </h2>
+                                <p className="text-slate-600 text-sm mb-2 leading-relaxed text-left">{error}</p>
+                                <p className="text-slate-400 text-xs mb-6 leading-relaxed">The backup profile shown below uses simplified logic only and is not analytically meaningful. You can dismiss this notice and review the backup result, or try again — possibly in a few minutes.</p>
                                 <div className="flex gap-3">
                                     <button onClick={() => setError(null)} className="flex-1 bg-slate-800 text-white font-bold py-3 rounded-xl text-sm">VIEW BACKUP RESULT</button>
                                     <button onClick={() => { setError(null); setInterpretedIntent(null); setIsMockMode(false); }} className="flex-1 bg-white border border-slate-300 text-slate-600 font-bold py-3 rounded-xl text-sm">TRY AGAIN</button>
                                 </div>
                             </div>
                         </div>
-                    )}
+                        );
+                    })()}
                 </div>
             );
         }
