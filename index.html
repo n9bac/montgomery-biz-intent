@@ -75,6 +75,7 @@
         function App() {
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
+            const [errorIsExternal, setErrorIsExternal] = useState(false);
             const [uiMode, setUiMode] = useState('intent'); // Defaults to intent for prototype focus
             const [geminiApiKey, setGeminiApiKey] = useState('');
 			const [apiKeySubmitted, setApiKeySubmitted] = useState(false);
@@ -491,18 +492,25 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                     console.error("Gemini Interpretation Failed", err);
                     const msg = err.message || '';
                     let reason;
+                    let isExternalCause;
                     if (msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand')) {
                         reason = "The Gemini AI service is temporarily overloaded on Google's side (error 503, high demand). This is not a fault in this application — it is a transient capacity issue on the AI provider's end, and usually resolves within minutes. Your business description below was processed instead by simplified backup logic, which has no real analytical value.";
+                        isExternalCause = true;
                     } else if (msg.includes('400') || msg.includes('API_KEY') || msg.includes('invalid')) {
                         reason = "The Gemini API key was rejected. Please check that a valid key is entered. Your business description below was processed instead by simplified backup logic, which has no real analytical value.";
+                        isExternalCause = false;
                     } else if (msg.startsWith('Validation Error')) {
                         reason = "The AI Interpreter responded, but its output did not pass this application's structural validation checks (" + msg.replace('Validation Error: ', '') + "). This is a safeguard, not a crash — malformed AI output is never allowed to reach the scoring engine. Your business description below was processed instead by simplified backup logic, which has no real analytical value.";
+                        isExternalCause = false;
                     } else if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('network')) {
                         reason = "A network connection to the Gemini API could not be established. This may be a temporary connectivity issue. Your business description below was processed instead by simplified backup logic, which has no real analytical value.";
+                        isExternalCause = true;
                     } else {
                         reason = "The AI Interpreter could not complete this request (" + (msg || 'unknown error') + "). Your business description below was processed instead by simplified backup logic, which has no real analytical value.";
+                        isExternalCause = false;
                     }
                     setError(reason);
+                    setErrorIsExternal(isExternalCause);
                     runMockLogic();
                 } finally {
                     setIsInterpreting(false);
@@ -1055,6 +1063,7 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                 } catch (err) {
                     console.error(err);
                     setError(err.message);
+                    setErrorIsExternal(false);
                     setLoading(false);
                 }
             };
@@ -1293,7 +1302,7 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                     {/* Navigation */}					
 					{isMockMode && (
 						<div className="absolute top-0 left-0 right-0 z-[2000] bg-amber-500 text-white text-center py-2 text-[11px] font-black uppercase tracking-widest">
-							⚠ Mock Mode Active — {error && error.includes('Google') ? 'AI provider temporarily unavailable (not an app fault)' : 'AI interpreter unavailable'}. Results are illustrative only and have no analytical value.
+							⚠ Mock Mode Active — {errorIsExternal ? 'AI provider temporarily unavailable (not an app fault)' : 'AI interpreter unavailable'}. Results are illustrative only and have no analytical value.
 						</div>
 					)}
                     <div className={`absolute right-4 z-[1000] flex gap-2 transition-all ${isMockMode ? 'top-12' : 'top-4'}`}>
@@ -1384,6 +1393,8 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
 													setTopMatches([]);
 													setSelectedTract(null);
 													setIsMockMode(false);
+													setError(null);
+													setErrorIsExternal(false);
 												}}
 												className="w-full py-4 rounded-xl font-black text-xs uppercase tracking-widest transition bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg">
 												↩ Start New Search
@@ -1906,7 +1917,7 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                     )}
 
                     {error && (() => {
-                        const isExternal = error.includes('Google') || error.includes('Gemini AI service') || error.includes('network connection');
+                        const isExternal = errorIsExternal;
                         return (
                         <div className="absolute inset-0 z-[2000] bg-white/90 flex flex-col items-center justify-center p-8 text-center">
                             <div className={`bg-white p-8 rounded-3xl shadow-2xl border max-w-md ${isExternal ? 'border-amber-200' : 'border-red-100'}`}>
@@ -1916,8 +1927,8 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                                 <p className="text-slate-600 text-sm mb-2 leading-relaxed text-left">{error}</p>
                                 <p className="text-slate-400 text-xs mb-6 leading-relaxed">The backup profile shown below uses simplified logic only and is not analytically meaningful. You can dismiss this notice and review the backup result, or try again — possibly in a few minutes.</p>
                                 <div className="flex gap-3">
-                                    <button onClick={() => setError(null)} className="flex-1 bg-slate-800 text-white font-bold py-3 rounded-xl text-sm">VIEW BACKUP RESULT</button>
-                                    <button onClick={() => { setError(null); setInterpretedIntent(null); setIsMockMode(false); }} className="flex-1 bg-white border border-slate-300 text-slate-600 font-bold py-3 rounded-xl text-sm">TRY AGAIN</button>
+                                    <button onClick={() => { setError(null); setErrorIsExternal(false); }} className="flex-1 bg-slate-800 text-white font-bold py-3 rounded-xl text-sm">VIEW BACKUP RESULT</button>
+                                    <button onClick={() => { setError(null); setErrorIsExternal(false); setInterpretedIntent(null); setIsMockMode(false); }} className="flex-1 bg-white border border-slate-300 text-slate-600 font-bold py-3 rounded-xl text-sm">TRY AGAIN</button>
                                 </div>
                             </div>
                         </div>
