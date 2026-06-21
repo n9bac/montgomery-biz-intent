@@ -76,6 +76,7 @@
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
             const [errorIsExternal, setErrorIsExternal] = useState(false);
+            const [showErrorDialog, setShowErrorDialog] = useState(false);
             const [uiMode, setUiMode] = useState('intent'); // Defaults to intent for prototype focus
             const [geminiApiKey, setGeminiApiKey] = useState('');
 			const [apiKeySubmitted, setApiKeySubmitted] = useState(false);
@@ -510,6 +511,7 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                         isExternalCause = false;
                     }
                     setError(reason);
+                    setShowErrorDialog(true);
                     setErrorIsExternal(isExternalCause);
                     runMockLogic();
                 } finally {
@@ -1064,6 +1066,7 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                     console.error(err);
                     setError(err.message);
                     setErrorIsExternal(false);
+                    setShowErrorDialog(true);
                     setLoading(false);
                 }
             };
@@ -1301,9 +1304,12 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                 <div className="relative w-full h-screen overflow-hidden flex flex-col md:flex-row">
                     {/* Navigation */}					
 					{isMockMode && (
-						<div className="absolute top-0 left-0 right-0 z-[2000] bg-amber-500 text-white text-center py-2 text-[11px] font-black uppercase tracking-widest">
-							⚠ Mock Mode Active — {errorIsExternal ? 'AI provider temporarily unavailable (not an app fault)' : 'AI interpreter unavailable'}. Results are illustrative only and have no analytical value.
-						</div>
+						<button
+							onClick={() => setShowErrorDialog(true)}
+							disabled={!error}
+							className={`absolute top-0 left-0 right-0 z-[2000] bg-amber-500 text-white text-center py-2 text-[11px] font-black uppercase tracking-widest transition ${error ? 'hover:bg-amber-600 cursor-pointer' : 'cursor-default'}`}>
+							⚠ Mock Mode Active — {errorIsExternal ? 'AI provider temporarily unavailable (not an app fault)' : 'AI interpreter unavailable'}. Results are illustrative only.{error && <span className="underline decoration-2 underline-offset-2"> Tap for details</span>}
+						</button>
 					)}
                     <div className={`absolute right-4 z-[1000] flex gap-2 transition-all ${isMockMode ? 'top-12' : 'top-4'}`}>
                         <button onClick={() => setUiMode('intent')} className={`px-4 py-2 rounded-full text-xs font-bold shadow-lg transition ${uiMode === 'intent' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600'}`}>INTENT</button>
@@ -1395,6 +1401,7 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
 													setIsMockMode(false);
 													setError(null);
 													setErrorIsExternal(false);
+													setShowErrorDialog(false);
 												}}
 												className="w-full py-4 rounded-xl font-black text-xs uppercase tracking-widest transition bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg">
 												↩ Start New Search
@@ -1916,7 +1923,7 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                         </div>
                     )}
 
-                    {error && (() => {
+                    {error && showErrorDialog && (() => {
                         const isExternal = errorIsExternal;
                         return (
                         <div className="absolute inset-0 z-[2000] bg-white/90 flex flex-col items-center justify-center p-8 text-center">
@@ -1927,8 +1934,8 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                                 <p className="text-slate-600 text-sm mb-2 leading-relaxed text-left">{error}</p>
                                 <p className="text-slate-400 text-xs mb-6 leading-relaxed">The backup profile shown below uses simplified logic only and is not analytically meaningful. You can dismiss this notice and review the backup result, or try again — possibly in a few minutes.</p>
                                 <div className="flex gap-3">
-                                    <button onClick={() => { setError(null); setErrorIsExternal(false); }} className="flex-1 bg-slate-800 text-white font-bold py-3 rounded-xl text-sm">VIEW BACKUP RESULT</button>
-                                    <button onClick={() => { setError(null); setErrorIsExternal(false); setInterpretedIntent(null); setIsMockMode(false); }} className="flex-1 bg-white border border-slate-300 text-slate-600 font-bold py-3 rounded-xl text-sm">TRY AGAIN</button>
+                                    <button onClick={() => setShowErrorDialog(false)} className="flex-1 bg-slate-800 text-white font-bold py-3 rounded-xl text-sm">VIEW BACKUP RESULT</button>
+                                    <button onClick={() => { setError(null); setErrorIsExternal(false); setShowErrorDialog(false); setInterpretedIntent(null); setIsMockMode(false); }} className="flex-1 bg-white border border-slate-300 text-slate-600 font-bold py-3 rounded-xl text-sm">TRY AGAIN</button>
                                 </div>
                             </div>
                         </div>
