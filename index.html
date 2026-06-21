@@ -1,3 +1,4 @@
+<!-- index.html v1.5 — fixes stale-key-vs-confirmed-key mismatch; adds generated_at timestamp to interpreted profile. See commit log for full history. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -265,16 +266,20 @@
                         throw new Error("Gemini SDK not properly initialized.");
                     }
 
-                    // In this environment, we expect GOOGLE_GENERATIVE_AI_API_KEY to be available
-                    // We check common aliases just in case.
-					const apiKey = geminiApiKey.trim() || null;
-					if (!apiKey) {
-						console.warn("No API key provided. Falling back to mock.");
+                    // The source of truth for "do we have a usable key" is keyConfirmed,
+                    // set only after a real successful validation call to Gemini. We do NOT
+                    // rely on the raw textbox alone: its content can be cleared or edited
+                    // after confirmation without keyConfirmed changing, and that mismatch
+                    // previously sent the app into mock mode even when a valid, already
+                    // confirmed key existed in memory.
+					if (!keyConfirmed || !geminiApiKey.trim()) {
+						console.warn("No confirmed API key available. Falling back to mock.");
                         // Wait slightly to feel "interpretive"
 						await new Promise(resolve => setTimeout(resolve, 800));
 						runMockLogic();
 						return;
 					}
+					const apiKey = geminiApiKey.trim();
 					setApiKeySubmitted(true);
 
                     const ai = new window.GoogleGenAI({ apiKey });
@@ -487,6 +492,7 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                     }
 
                     setIsMockMode(false);
+					result.generated_at = new Date().toISOString();
 					setInterpretedIntent(result);
 
                 } catch (err) {
@@ -596,6 +602,7 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                     clarification_question: null,
                     interpretation_notes: notes
                 };
+                result.generated_at = new Date().toISOString();
                 setInterpretedIntent(result);
             };
 
@@ -1427,6 +1434,11 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                                                 <div>
                                                     <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Interpreted Profile</h2>
                                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{interpretedIntent.canonical_label}</p>
+                                                    {interpretedIntent.generated_at && (
+                                                        <p className="text-[9px] font-bold text-slate-300 uppercase tracking-tight mt-1">
+                                                            Generated {new Date(interpretedIntent.generated_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' })}
+                                                        </p>
+                                                    )}
                                                 </div>
                                                 <div className="flex flex-col items-end">
                                                     <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${interpretedIntent.confidence > 0.7 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
