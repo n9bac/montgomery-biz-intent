@@ -1,4 +1,4 @@
-<!-- index.html v1.6 — switches model from gemini-3-flash-preview to gemini-2.0-flash (stable tier, less congested); fixes stale-key-vs-confirmed-key mismatch; adds generated_at timestamp. See commit log for full history. -->
+<!-- index.html v1.7 — bumps @google/genai SDK from 2.0.0 to 2.9.0, required for gemini-2.0-flash to route correctly (v1.6 had the right model string but wrong SDK version, causing Failed to fetch on key confirmation). See commit log for full history. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -51,7 +51,7 @@
 
     <!-- Gemini SDK via CDN -->
     <script type="module" crossorigin="anonymous" data-ignore="true">
-        import('https://esm.sh/@google/genai@2.0.0').then(mod => {
+        import('https://esm.sh/@google/genai@2.9.0').then(mod => {
             window.GoogleGenAI = mod.GoogleGenAI;
             console.log("Gemini SDK Loaded Successfully");
         }).catch(err => {
