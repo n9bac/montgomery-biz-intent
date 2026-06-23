@@ -1,4 +1,4 @@
-<!-- index.html v1.7 — bumps @google/genai SDK from 2.0.0 to 2.9.0, required for gemini-2.0-flash to route correctly (v1.6 had the right model string but wrong SDK version, causing Failed to fetch on key confirmation). See commit log for full history. -->
+<!-- index.html v1.8 (diagnostic) — adds SDK export logging and detailed key-confirmation error logging to diagnose why gemini-2.0-flash key confirmation fails with "Could not reach Gemini service". Push, test, check F12 console, report results. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -52,8 +52,17 @@
     <!-- Gemini SDK via CDN -->
     <script type="module" crossorigin="anonymous" data-ignore="true">
         import('https://esm.sh/@google/genai@2.9.0').then(mod => {
-            window.GoogleGenAI = mod.GoogleGenAI;
-            console.log("Gemini SDK Loaded Successfully");
+            console.log('[SDK] Module keys:', Object.keys(mod));
+            console.log('[SDK] mod.GoogleGenAI:', mod.GoogleGenAI);
+            console.log('[SDK] mod.GenAI:', mod.GenAI);
+            console.log('[SDK] mod.default:', mod.default);
+            // Try multiple possible export names
+            window.GoogleGenAI = mod.GoogleGenAI || mod.GenAI || (mod.default && mod.default.GoogleGenAI) || mod.default;
+            if (window.GoogleGenAI) {
+                console.log("Gemini SDK Loaded Successfully — using:", window.GoogleGenAI.name || typeof window.GoogleGenAI);
+            } else {
+                console.error("[SDK] Could not find GoogleGenAI in module exports:", Object.keys(mod));
+            }
         }).catch(err => {
             console.error("Failed to load Gemini SDK from ESM.sh", err);
         });
@@ -135,13 +144,23 @@
 					setIsMockMode(false);
 				} catch(err) {
 					setKeyConfirmed(false);
-					const msg = err.message || '';
-					if (msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand')) {
+					// Log the full error details so we can diagnose exactly what is failing
+					console.error('[confirmApiKey] FULL ERROR:', err);
+					console.error('[confirmApiKey] err.message:', err?.message);
+					console.error('[confirmApiKey] err.name:', err?.name);
+					console.error('[confirmApiKey] err.status:', err?.status);
+					console.error('[confirmApiKey] err.code:', err?.code);
+					console.error('[confirmApiKey] typeof err:', typeof err);
+					console.error('[confirmApiKey] JSON:', JSON.stringify(err, Object.getOwnPropertyNames(err)));
+					const msg = (err?.message || err?.toString() || '').toLowerCase();
+					if (msg.includes('503') || msg.includes('unavailable') || msg.includes('high demand')) {
 						alert("The Gemini model is temporarily busy (high demand). Your key is likely valid — please wait a minute and try confirming again.");
-					} else if (msg.includes('400') || msg.includes('API_KEY') || msg.includes('invalid')) {
+					} else if (msg.includes('400') || msg.includes('api_key') || msg.includes('invalid') || msg.includes('api key')) {
 						alert("Key not recognised. Please check that you have copied the full API key from Google AI Studio and try again.");
+					} else if (msg.includes('sdk not ready')) {
+						alert("The Gemini SDK has not loaded yet. Please wait a few seconds and try again.");
 					} else {
-						alert("Could not reach the Gemini service. Please check your internet connection and try again.");
+						alert("Could not confirm the key. Raw error: " + (err?.message || err?.toString() || 'unknown') + ". Please check the browser console (F12) for details.");
 					}
 				}
 			};
