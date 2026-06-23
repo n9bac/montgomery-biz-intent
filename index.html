@@ -1,4 +1,4 @@
-<!-- index.html v1.5 — fixes stale-key-vs-confirmed-key mismatch; adds generated_at timestamp to interpreted profile. See commit log for full history. -->
+<!-- index.html v1.6 — switches model from gemini-3-flash-preview to gemini-2.0-flash (stable tier, less congested); fixes stale-key-vs-confirmed-key mismatch; adds generated_at timestamp. See commit log for full history. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -127,7 +127,7 @@
 					if (!window.GoogleGenAI) throw new Error("SDK not ready");
 					const ai = new window.GoogleGenAI({ apiKey: geminiApiKey.trim() });
 					await ai.models.generateContent({
-						model: "gemini-3-flash-preview",
+						model: "gemini-2.0-flash",
 						contents: [{ parts: [{ text: "reply only: ok" }] }]
 					});
 					setKeyConfirmed(true);
@@ -378,7 +378,7 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
 `;
 
                     const response = await ai.models.generateContent({
-                        model: "gemini-3-flash-preview",
+                        model: "gemini-2.0-flash",
                         contents: [{ parts: [{ text: userPrompt }] }],
                         config: {
                             systemInstruction: systemInstruction,
