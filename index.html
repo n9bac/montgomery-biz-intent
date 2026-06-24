@@ -1,4 +1,4 @@
-<!-- index.html v1.9 — migrates AI provider from Google Gemini to Anthropic Claude (claude-haiku-4-5). SDK, API call, response parsing, error codes, and all UI labels updated. Analytical layer, validation gate, mock fallback, and governance framework unchanged. -->
+<!-- index.html v1.9 — migrates AI provider from Google Gemini to Anthropic Claude (claude-haiku-4-5); adds explicit enum constraints to system prompt to prevent space_profile/customer_mode/zoning validation failures. SDK, API call, response parsing, error codes, and UI labels updated. Analytical layer unchanged. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -329,7 +329,14 @@ ${JSON.stringify(interpreterSchema)}
 6. Use priority_text as business context (parking, low rent, young clientele, etc.).
 7. Sensitive clientele: interpret as service-design context (privacy, calm environment), not demographic targeting.
 8. Do not overclaim success or zoning availability.
-9. Output JSON only. No explanations outside the JSON.
+9. Output JSON only. No explanations outside the JSON. Do not wrap the JSON in markdown code fences.
+
+## STRICT ENUM CONSTRAINTS — you must use ONLY these exact values:
+space_profile must be one of: storefront, small_retail_unit, restaurant_unit, office, clinic_like, studio, workshop, warehouse, flex_storefront, unknown
+customer_mode must be one of: walk_in, appointment, delivery, backoffice, hybrid
+ambiguity_level must be one of: low, medium, high
+zoning_candidate_families items must be from: commercial, mixed_use, office, medical_office, institutional, special_review, light_industrial, service_industrial, service_commercial, industrial, logistics, unknown_until_decomposed
+Any value outside these lists will cause a validation failure. If unsure, use the closest match or "unknown".
 
 ## Decision order
 1. Identify dominant activity
