@@ -1,4 +1,4 @@
-<!-- index.html v1.9 — migrates AI provider from Google Gemini to Anthropic Claude (claude-haiku-4-5); adds explicit enum constraints to system prompt to prevent space_profile/customer_mode/zoning validation failures. SDK, API call, response parsing, error codes, and UI labels updated. Analytical layer unchanged. -->
+<!-- index.html v1.9 — migrates to Claude API; extracts system prompt to interpreter_prompt_v1.txt with {{REFERENCE_FAMILIES}} and {{OUTPUT_SCHEMA}} placeholders; adds explicit enum constraints; raises max_tokens to 4096. Analytical layer unchanged. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -96,6 +96,7 @@
             const [mappingConfig, setMappingConfig] = useState(null);
             const [advancedConfig, setAdvancedConfig] = useState(null);
             const [interpreterSchema, setInterpreterSchema] = useState(null);
+            const [interpreterPromptTemplate, setInterpreterPromptTemplate] = useState(null);
             const [investorDescription, setInvestorDescription] = useState("");
             const [investorPriorities, setInvestorPriorities] = useState("");
             const [clarificationResponse, setClarificationResponse] = useState("");
@@ -215,6 +216,15 @@
                     .then(data => setAdvancedConfig(data))
                     .catch(err => console.error('Could not load advanced config', err));
 
+                // --- interpreter system prompt (versioned file) ---
+                fetch('/prompts/interpreter_prompt_v1.txt')
+                    .then(r => r.text())
+                    .then(text => {
+                        setInterpreterPromptTemplate(text);
+                        console.log('[Prompt] interpreter_prompt_v1.txt loaded, chars:', text.length);
+                    })
+                    .catch(err => console.error('Could not load interpreter prompt — will fall back to inline construction', err));
+
                 // --- interpreter_output_schema.json + schema patch ---
                 Promise.all([
                     fetch('/interpreter_output_schema.json').then(r => r.json()),
@@ -289,99 +299,51 @@
 
                     const client = new window.Anthropic({ apiKey, dangerouslyAllowBrowser: true });
                     
-                    const systemInstruction = `
-You are the AI Interpreter for Montgomery Biz Intent.
+                    // Build system instruction from the versioned prompt file.
+                    // The two dynamic sections (families and schema) are injected
+                    // via {{REFERENCE_FAMILIES}} and {{OUTPUT_SCHEMA}} placeholders.
+                    const familiesJson = JSON.stringify(
+                        businessFamilies.map(f => ({ id: f.id, label: f.label, examples: f.examples }))
+                    );
+                    const schemaJson = JSON.stringify({
+                        business_text: "string",
+                        priority_text: "string or null",
+                        canonical_label: "string",
+                        business_family_id: "one of the family IDs above",
+                        secondary_family_id: "family ID or null",
+                        reasoning_summary: "string",
+                        customer_mode: "walk_in | appointment | delivery | backoffice | hybrid",
+                        space_profile: "storefront | small_retail_unit | restaurant_unit | office | clinic_like | studio | workshop | warehouse | flex_storefront | unknown",
+                        location_needs: {
+                            visibility: 0.0, footfall: 0.0, parking: 0.0, transit: 0.0,
+                            affluent_area: 0.0, family_area: 0.0, nightlife_area: 0.0,
+                            low_rent_priority: 0.0, vehicle_access: 0.0,
+                            luxury_cluster_fit: 0.0, compatible_business_cluster: 0.5, daytime_worker_concentration: 0.0
+                        },
+                        activity_profile: { daytime: 0.0, evening: 0.0, noise_tolerance_needed: 0.0, delivery_logistics: 0.0 },
+                        target_customer_origin: [{ origin: "resident | daytime_worker | destination_visitor | passing_traffic", weight: 0.0 }],
+                        zoning_candidate_families: ["commercial | mixed_use | office | medical_office | institutional | special_review | light_industrial | service_industrial | service_commercial | industrial | logistics | unknown_until_decomposed"],
+                        detected_flags: { alcohol_sensitive: false, child_sensitive: false, medical_sensitive: false, industrial_sensitive: false, hybrid_concept: false },
+                        confidence: 0.0,
+                        ambiguity_level: "low | medium | high",
+                        needs_confirmation: false,
+                        clarification_question: "string or null",
+                        interpretation_notes: []
+                    }, null, 2);
 
-Your role is to translate an investor’s natural-language business idea into a structured business profile for a deterministic analytical engine.
+                    let systemInstruction;
+                    if (interpreterPromptTemplate) {
+                        systemInstruction = interpreterPromptTemplate
+                            .replace('{{REFERENCE_FAMILIES}}',
+                                'REFERENCE FAMILIES (use only these family IDs):\n' + familiesJson)
+                            .replace('{{OUTPUT_SCHEMA}}',
+                                'OUTPUT SCHEMA (produce exactly this JSON structure):\n' + schemaJson);
+                        console.log('[Prompt] Using interpreter_prompt_v1.txt, chars:', systemInstruction.length);
+                    } else {
+                        console.warn('[Prompt] interpreter_prompt_v1.txt not loaded — using inline fallback');
+                        systemInstruction = 'You are the AI Interpreter for Montgomery Biz Intent. Translate the investor business idea into a structured JSON profile matching the output schema exactly. Output JSON only, no markdown fences.\n\nREFERENCE FAMILIES:\n' + familiesJson + '\n\nOUTPUT SCHEMA:\n' + schemaJson;
+                    }
 
-You are NOT the final judge.
-You do NOT decide:
-* legal compliance
-* zoning validity
-* permit status
-* final recommendation
-* final tract ranking
-
-You only translate the business idea into structured product logic.
-
-## Inputs
-You will receive:
-* business_text: the investor’s natural-language business description
-* priority_text: optional natural-language priorities
-* optionally clarification_response_text: if a clarification was requested
-
-## Reference constraints
-You must use only the known business families and the known output schema.
-You must NOT invent new family IDs.
-
-REFERENCE FAMILIES:
-${JSON.stringify(businessFamilies)}
-
-OUTPUT SCHEMA:
-${JSON.stringify(interpreterSchema)}
-
-## Behavioral rules
-1. Think operationally, not poetically. Focus on activity, space type, and location needs.
-2. Prefer decomposition over invention. Decompose hybrid concepts into core/secondary activities.
-3. Hybrid vs Contextual: Use 'secondary_family_id' to add context, but set 'detected_flags.hybrid_concept' to 'true' ONLY if the business genuinely combines two distinct operational models (e.g., a bookstore with a cafe). If the secondary family just describes a flavor or specialty (e.g., pediatric speech therapy), set 'hybrid_concept' to 'false'.
-4. Be honest about uncertainty. Lower confidence if vague.
-5. Ask at most one clarification question.
-6. Use priority_text as business context (parking, low rent, young clientele, etc.).
-7. Sensitive clientele: interpret as service-design context (privacy, calm environment), not demographic targeting.
-8. Do not overclaim success or zoning availability.
-9. Output JSON only. No explanations outside the JSON. Do not wrap the JSON in markdown code fences.
-
-## STRICT ENUM CONSTRAINTS — you must use ONLY these exact values:
-space_profile must be one of: storefront, small_retail_unit, restaurant_unit, office, clinic_like, studio, workshop, warehouse, flex_storefront, unknown
-customer_mode must be one of: walk_in, appointment, delivery, backoffice, hybrid
-ambiguity_level must be one of: low, medium, high
-zoning_candidate_families items must be from: commercial, mixed_use, office, medical_office, institutional, special_review, light_industrial, service_industrial, service_commercial, industrial, logistics, unknown_until_decomposed
-Any value outside these lists will cause a validation failure. If unsure, use the closest match or "unknown".
-
-## Decision order
-1. Identify dominant activity
-2. Identify operating model
-3. Identify space profile
-4. Infer location needs
-5. Identify secondary family context if needed.
-6. Determine if the concept is a true "hybrid" (dual operation).
-7. Assess ambiguity.
-8. Produce valid structured JSON only.
-
-## Family selection and Hybrid policy
-* 'business_family_id' must be one known family ID.
-* 'secondary_family_id' can be used for contextual modifiers.
-* 'detected_flags.hybrid_concept' = 'true' only for dual-nature operations (e.g., Bike shop + Repair workshop).
-* 'detected_flags.hybrid_concept' = 'false' for specialized but single-mode concepts (e.g., Adult Day Care, Pediatric Dental).
-* if too unclear, use 'emerging_or_hard_to_classify'.
-
-## Confidence policy
-* 0.80–1.00 = clear concept
-* 0.60–0.79 = mostly clear
-* 0.40–0.59 = hybrid or partly unclear
-* below 0.40 = weak understanding
-
-## Ambiguity policy
-* low = clearly mappable
-* medium = hybrid but still interpretable
-* high = materially unclear or underdefined
-
-## Numeric rules
-All numeric values in location_needs, activity_profile, and confidence must remain in the range 0.0 to 1.0.
-
-## Extended output fields (schema patch v1.1 — required)
-You must also produce these fields in addition to the base schema:
-
-target_customer_origin: array of {origin, weight} objects. Allowed origins: resident, daytime_worker, destination_visitor, passing_traffic. Weights must sum to 1.0. Use the matched family's default mix as a starting point and adjust for the specific business description.
-
-location_needs.luxury_cluster_fit (0.0–1.0): Set to 0.0 unless the description or priority_text signals premium/upscale/luxury/boutique/high-end/artisan positioning, in which case 0.6–0.95. This is independent of affluent_area — do not conflate them.
-
-location_needs.compatible_business_cluster (0.0–1.0): Default 0.5 for most families. Raise to 0.7–0.9 for cluster-dependent concepts (restaurant rows, wellness districts, professional hubs, luxury retail). Lower to 0.2–0.3 for logistics or back-office operations.
-
-location_needs.daytime_worker_concentration (0.0–1.0): Mandatory minimum 0.6 for food_beverage_quickservice, professional_office_service, and digital_creative_studio. For other families, set to approximately 0.4 + (0.4 × daytime_worker weight from target_customer_origin). Set to 0.0 only if daytime_worker weight is below 0.15.
-
-Add a note to interpretation_notes for each of these three fields explaining why the value was set as it was.
-`;
 
                     const userPrompt = `
 business_text: "${investorDescription}"
@@ -391,7 +353,7 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
 
                     const response = await client.messages.create({
                         model: "claude-haiku-4-5",
-                        max_tokens: 2048,
+                        max_tokens: 4096,
                         system: systemInstruction,
                         messages: [{ role: "user", content: userPrompt }]
                     });
