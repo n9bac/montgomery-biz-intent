@@ -1,4 +1,4 @@
-<!-- index.html v1.8 (diagnostic) — adds SDK export logging and detailed key-confirmation error logging to diagnose why gemini-2.0-flash key confirmation fails with "Could not reach Gemini service". Push, test, check F12 console, report results. -->
+<!-- index.html v1.9 — migrates AI provider from Google Gemini to Anthropic Claude (claude-haiku-4-5). SDK, API call, response parsing, error codes, and all UI labels updated. Analytical layer, validation gate, mock fallback, and governance framework unchanged. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -49,22 +49,18 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/@turf/turf@6/turf.min.js" crossorigin="anonymous"></script>
 
-    <!-- Gemini SDK via CDN -->
+    <!-- Anthropic Claude SDK via CDN -->
     <script type="module" crossorigin="anonymous" data-ignore="true">
-        import('https://esm.sh/@google/genai@2.9.0').then(mod => {
-            console.log('[SDK] Module keys:', Object.keys(mod));
-            console.log('[SDK] mod.GoogleGenAI:', mod.GoogleGenAI);
-            console.log('[SDK] mod.GenAI:', mod.GenAI);
-            console.log('[SDK] mod.default:', mod.default);
-            // Try multiple possible export names
-            window.GoogleGenAI = mod.GoogleGenAI || mod.GenAI || (mod.default && mod.default.GoogleGenAI) || mod.default;
-            if (window.GoogleGenAI) {
-                console.log("Gemini SDK Loaded Successfully — using:", window.GoogleGenAI.name || typeof window.GoogleGenAI);
+        import('https://esm.sh/@anthropic-ai/sdk@0.27.0').then(mod => {
+            console.log('[SDK] Anthropic SDK loaded. Keys:', Object.keys(mod));
+            window.Anthropic = mod.default || mod.Anthropic || mod;
+            if (window.Anthropic) {
+                console.log("Anthropic SDK Loaded Successfully");
             } else {
-                console.error("[SDK] Could not find GoogleGenAI in module exports:", Object.keys(mod));
+                console.error("[SDK] Could not find Anthropic in module exports:", Object.keys(mod));
             }
         }).catch(err => {
-            console.error("Failed to load Gemini SDK from ESM.sh", err);
+            console.error("Failed to load Anthropic SDK from ESM.sh", err);
         });
     </script>
 
@@ -88,7 +84,7 @@
             const [errorIsExternal, setErrorIsExternal] = useState(false);
             const [showErrorDialog, setShowErrorDialog] = useState(false);
             const [uiMode, setUiMode] = useState('intent'); // Defaults to intent for prototype focus
-            const [geminiApiKey, setGeminiApiKey] = useState('');
+            const [claudeApiKey, setClaudeApiKey] = useState('');
 			const [apiKeySubmitted, setApiKeySubmitted] = useState(false);
 			const [selectedTract, setSelectedTract] = useState(null);
             const [cityData, setCityData] = useState(null);
@@ -131,34 +127,28 @@
 				}, 150);
 			};
 			const confirmApiKey = async () => {
-				if (!geminiApiKey.trim()) return;
+				if (!claudeApiKey.trim()) return;
 				try {
-					if (!window.GoogleGenAI) throw new Error("SDK not ready");
-					const ai = new window.GoogleGenAI({ apiKey: geminiApiKey.trim() });
-					await ai.models.generateContent({
-						model: "gemini-2.0-flash",
-						contents: [{ parts: [{ text: "reply only: ok" }] }]
+					if (!window.Anthropic) throw new Error("SDK not ready");
+					const client = new window.Anthropic({ apiKey: claudeApiKey.trim(), dangerouslyAllowBrowser: true });
+					await client.messages.create({
+						model: "claude-haiku-4-5",
+						max_tokens: 10,
+						messages: [{ role: "user", content: "reply only: ok" }]
 					});
 					setKeyConfirmed(true);
 					setApiKeySubmitted(true);
 					setIsMockMode(false);
 				} catch(err) {
 					setKeyConfirmed(false);
-					// Log the full error details so we can diagnose exactly what is failing
 					console.error('[confirmApiKey] FULL ERROR:', err);
-					console.error('[confirmApiKey] err.message:', err?.message);
-					console.error('[confirmApiKey] err.name:', err?.name);
-					console.error('[confirmApiKey] err.status:', err?.status);
-					console.error('[confirmApiKey] err.code:', err?.code);
-					console.error('[confirmApiKey] typeof err:', typeof err);
-					console.error('[confirmApiKey] JSON:', JSON.stringify(err, Object.getOwnPropertyNames(err)));
 					const msg = (err?.message || err?.toString() || '').toLowerCase();
-					if (msg.includes('503') || msg.includes('unavailable') || msg.includes('high demand')) {
-						alert("The Gemini model is temporarily busy (high demand). Your key is likely valid — please wait a minute and try confirming again.");
-					} else if (msg.includes('400') || msg.includes('api_key') || msg.includes('invalid') || msg.includes('api key')) {
-						alert("Key not recognised. Please check that you have copied the full API key from Google AI Studio and try again.");
+					if (msg.includes('529') || msg.includes('overloaded') || msg.includes('high demand')) {
+						alert("The Claude model is temporarily busy. Your key is likely valid — please wait a minute and try confirming again.");
+					} else if (msg.includes('401') || msg.includes('authentication') || msg.includes('invalid x-api-key') || msg.includes('api key')) {
+						alert("Key not recognised. Please check that you have copied the full API key from console.anthropic.com and try again.");
 					} else if (msg.includes('sdk not ready')) {
-						alert("The Gemini SDK has not loaded yet. Please wait a few seconds and try again.");
+						alert("The Anthropic SDK has not loaded yet. Please wait a few seconds and try again.");
 					} else {
 						alert("Could not confirm the key. Raw error: " + (err?.message || err?.toString() || 'unknown') + ". Please check the browser console (F12) for details.");
 					}
@@ -281,27 +271,23 @@
                 setInterpretedIntent(null);
                 
                 try {
-                    if (!window.GoogleGenAI) {
-                        throw new Error("Gemini SDK not properly initialized.");
+                    if (!window.Anthropic) {
+                        throw new Error("Anthropic SDK not properly initialized.");
                     }
 
                     // The source of truth for "do we have a usable key" is keyConfirmed,
-                    // set only after a real successful validation call to Gemini. We do NOT
-                    // rely on the raw textbox alone: its content can be cleared or edited
-                    // after confirmation without keyConfirmed changing, and that mismatch
-                    // previously sent the app into mock mode even when a valid, already
-                    // confirmed key existed in memory.
-					if (!keyConfirmed || !geminiApiKey.trim()) {
+                    // set only after a real successful validation call to Claude.
+					if (!keyConfirmed || !claudeApiKey.trim()) {
 						console.warn("No confirmed API key available. Falling back to mock.");
                         // Wait slightly to feel "interpretive"
 						await new Promise(resolve => setTimeout(resolve, 800));
 						runMockLogic();
 						return;
 					}
-					const apiKey = geminiApiKey.trim();
+					const apiKey = claudeApiKey.trim();
 					setApiKeySubmitted(true);
 
-                    const ai = new window.GoogleGenAI({ apiKey });
+                    const client = new window.Anthropic({ apiKey, dangerouslyAllowBrowser: true });
                     
                     const systemInstruction = `
 You are the AI Interpreter for Montgomery Biz Intent.
@@ -396,18 +382,19 @@ priority_text: "${investorPriorities || 'none'}"
 ${clarificationResponse ? `clarification_response_text: "${clarificationResponse}"` : ''}
 `;
 
-                    const response = await ai.models.generateContent({
-                        model: "gemini-2.0-flash",
-                        contents: [{ parts: [{ text: userPrompt }] }],
-                        config: {
-                            systemInstruction: systemInstruction,
-                            responseMimeType: "application/json",
-                        }
+                    const response = await client.messages.create({
+                        model: "claude-haiku-4-5",
+                        max_tokens: 2048,
+                        system: systemInstruction,
+                        messages: [{ role: "user", content: userPrompt }]
                     });
 
-                    if (!response.text) throw new Error("Empty response from AI");
-                    
-                    const result = JSON.parse(response.text);
+                    if (!response.content || !response.content[0] || !response.content[0].text) {
+                        throw new Error("Empty response from AI");
+                    }
+                    const rawText = response.content[0].text.trim()
+                        .replace(/^```json\s*/i, '').replace(/```\s*$/, '');
+                    const result = JSON.parse(rawText);
 
                     // --- Validation Gate ---
                     const validateResult = (data) => {
@@ -519,11 +506,11 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                     const msg = err.message || '';
                     let reason;
                     let isExternalCause;
-                    if (msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand')) {
-                        reason = "The Gemini AI service is temporarily overloaded on Google's side (error 503, high demand). This is not a fault in this application — it is a transient capacity issue on the AI provider's end, and usually resolves within minutes. Your business description below was processed instead by simplified backup logic, which has no real analytical value.";
+                    if (msg.includes('529') || msg.includes('overloaded') || msg.includes('high demand')) {
+                        reason = "The Claude AI service is temporarily overloaded on Anthropic's side (error 529). This is not a fault in this application — it is a transient capacity issue on the AI provider's end, and usually resolves within minutes. Your business description below was processed instead by simplified backup logic, which has no real analytical value.";
                         isExternalCause = true;
-                    } else if (msg.includes('400') || msg.includes('API_KEY') || msg.includes('invalid')) {
-                        reason = "The Gemini API key was rejected. Please check that a valid key is entered. Your business description below was processed instead by simplified backup logic, which has no real analytical value.";
+                    } else if (msg.includes('401') || msg.includes('authentication') || msg.includes('invalid x-api-key')) {
+                        reason = "The Claude API key was rejected. Please check that a valid key is entered. Your business description below was processed instead by simplified backup logic, which has no real analytical value.";
                         isExternalCause = false;
                     } else if (msg.startsWith('Validation Error')) {
                         reason = "The AI Interpreter responded, but its output did not pass this application's structural validation checks (" + msg.replace('Validation Error: ', '') + "). This is a safeguard, not a crash — malformed AI output is never allowed to reach the scoring engine. Your business description below was processed instead by simplified backup logic, which has no real analytical value.";
@@ -1384,18 +1371,18 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                                         </div>
 										{!apiKeySubmitted && (
 											<div className="space-y-2">
-												<label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Gemini API Key</label>
+												<label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Claude API Key</label>
 												<input
 													type="password"
-													value={geminiApiKey}
-													onChange={(e) => { setGeminiApiKey(e.target.value); setKeyConfirmed(false); }}
-													placeholder="Paste your Gemini API key here"
+													value={claudeApiKey}
+													onChange={(e) => { setClaudeApiKey(e.target.value); setKeyConfirmed(false); }}
+													placeholder="Paste your Claude API key here"
 													className="w-full p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-400 outline-none transition font-mono"
 												/>
 												<button
 													onClick={confirmApiKey}
-													disabled={!geminiApiKey.trim()}
-													className={`w-full py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition ${!geminiApiKey.trim() ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : keyConfirmed ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white hover:bg-amber-600'}`}>
+													disabled={!claudeApiKey.trim()}
+													className={`w-full py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition ${!claudeApiKey.trim() ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : keyConfirmed ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white hover:bg-amber-600'}`}>
 													{keyConfirmed ? '✓ Key Confirmed' : 'Confirm API Key'}
 												</button>
 												<p className="text-[9px] text-slate-400 leading-tight">Key is used only in this session and never stored or transmitted elsewhere. Leave blank to run in mock mode.</p>
@@ -1405,7 +1392,7 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
 											<div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-100 rounded-xl">
 												<span className="text-emerald-500 text-xs">●</span>
 												<span className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">AI Interpreter Active</span>
-												<button onClick={() => { setApiKeySubmitted(false); setGeminiApiKey(''); }} className="ml-auto text-[9px] text-slate-400 hover:text-slate-600 underline">Reset</button>
+												<button onClick={() => { setApiKeySubmitted(false); setClaudeApiKey(''); }} className="ml-auto text-[9px] text-slate-400 hover:text-slate-600 underline">Reset</button>
 											</div>
 										)}
 										{!interpretedIntent ? (
