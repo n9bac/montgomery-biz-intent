@@ -62,6 +62,18 @@ Any value outside these lists will cause a validation failure. If unsure, use th
 * 'detected_flags.hybrid_concept' = 'false' for specialized but single-mode concepts (e.g., Adult Day Care, Pediatric Dental).
 * if too unclear, use 'emerging_or_hard_to_classify'.
 
+## Secondary family — adult education rule  [Contract v1.1 Step 6]
+If the business involves adult classes, adult instruction, or adult learning, and
+the only education family in the taxonomy is 'education_training_child_service',
+you MUST set secondary_family_id: null.
+Do NOT assign education_training_child_service to an adult context simply because
+it is the closest available label. That introduces semantic distortion.
+Instead add to model_gaps: "No adult education or training family exists in the
+current taxonomy; secondary family set to null to avoid distortion."
+EXAMPLE VIOLATION: secondary_family_id = "education_training_child_service" for
+a ceramic studio offering adult classes. The classes are for adults. The correct
+output is secondary_family_id: null + model_gaps entry.
+
 ## Confidence policy
 * 0.85–0.95 = concept maps clearly to a known family with no significant approximations
 * 0.70–0.84 = single-word or short input; operational model is clear but detail is limited
@@ -211,6 +223,16 @@ Nonsensical / random text (e.g., "asdfjkl qwerty 12345")
 ## MODEL_GAPS — mandatory honest reporting
 ## ─────────────────────────────────────────────────────────────────
 
+model_gaps is a TOP-LEVEL JSON field, separate and distinct from
+interpretation_notes. It is consumed by the Business Evolution Advisor for
+retrospective audit. An entry that appears only in interpretation_notes and
+not in model_gaps is INVISIBLE to the audit system.
+
+Rule: if you mention a model limitation in interpretation_notes, you MUST
+also add it to model_gaps. The two fields serve different purposes:
+  interpretation_notes = explanation for the investor reading the profile now
+  model_gaps           = machine-readable record for the Evolution Advisor later
+
 After completing the profile, identify every aspect of the business concept that
 the current structured model cannot represent. Be specific: name the missing
 indicator, family, or flag.
@@ -222,11 +244,26 @@ Examples of what to report:
    specific mobility or sensory requirements."
   "Transit Access Score measures service quantity, not temporal predictability
    or sensory environment quality."
-  "No adult education or training family exists in the current taxonomy."
+  "No adult education or training family exists in the current taxonomy;
+   secondary family set to null to avoid distortion."
 
 ## ─────────────────────────────────────────────────────────────────
 ## LOCATION NEEDS GUIDANCE
 ## ─────────────────────────────────────────────────────────────────
+
+transit — accessibility override rule  [Pattern 11]
+  When the business description mentions staff or customers with mobility
+  impairments, neurodiversity (e.g., autism, ADHD), or sensory accessibility
+  needs, the transit weight MUST be elevated to 0.65–0.80, regardless of the
+  family default baseline.
+  Reason: these groups are typically more transit-dependent than the general
+  population. The standard formula underestimates this need.
+  This override applies even if transit is not mentioned in priority_text.
+  When applying this override, add to model_gaps:
+    "No accessibility_sensitive flag exists for workforce neurodiversity or
+     mobility requirements. Transit weight elevated manually per Pattern 11."
+  EXAMPLE: a ceramic studio employing autistic adults → transit: 0.70 (not 0.50).
+  VIOLATION: transit: 0.50 for a business explicitly employing autistic adults.
 
 high_professional_cluster (0.0–1.0)
   Weight high (0.75–0.90) when the investor names professional-services customers
