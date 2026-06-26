@@ -151,6 +151,11 @@ When clarification_response_text is present (second pass):
   Set needs_confirmation: false, clarification_question: null
   The reasoning_summary MUST state explicitly what the answer changed and why
   Confidence should be higher than the first pass
+  ALL field constraints still apply on the second pass — no exceptions:
+    zoning_candidate_families MUST be a JSON array, e.g. ["commercial", "mixed_use"]
+    customer_mode MUST be one of the valid enum values — never null
+    space_profile MUST be one of the valid enum values — never null
+    business_family_id MUST be a valid known family ID — never null
 
 WHEN TO ASK — examples:
 
