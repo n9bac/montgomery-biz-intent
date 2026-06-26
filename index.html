@@ -217,7 +217,7 @@
                     .catch(err => console.error('Could not load advanced config', err));
 
                 // --- interpreter system prompt (versioned file) ---
-                fetch('/prompts/interpreter_prompt_v1.1.txt')
+                fetch('/prompts/interpreter_prompt_v1.1.txt', { cache: 'no-store' })
                     .then(r => r.text())
                     .then(text => {
                         setInterpreterPromptTemplate(text);
