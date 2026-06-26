@@ -1,4 +1,4 @@
-<!-- index.html v1.9 — migrates to Claude API; extracts system prompt to interpreter_prompt_v1.txt with {{REFERENCE_FAMILIES}} and {{OUTPUT_SCHEMA}} placeholders; adds explicit enum constraints; raises max_tokens to 4096. Analytical layer unchanged. -->
+<!-- index.html v1.9 — migrates to Claude API; extracts system prompt to interpreter_prompt_v1.1.txt with {{REFERENCE_FAMILIES}} and {{OUTPUT_SCHEMA}} placeholders; adds explicit enum constraints; raises max_tokens to 4096. Analytical layer unchanged. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -217,11 +217,11 @@
                     .catch(err => console.error('Could not load advanced config', err));
 
                 // --- interpreter system prompt (versioned file) ---
-                fetch('/prompts/interpreter_prompt_v1.txt')
+                fetch('/prompts/interpreter_prompt_v1.1.txt')
                     .then(r => r.text())
                     .then(text => {
                         setInterpreterPromptTemplate(text);
-                        console.log('[Prompt] interpreter_prompt_v1.txt loaded, chars:', text.length);
+                        console.log('[Prompt] interpreter_prompt_v1.1.txt loaded, chars:', text.length);
                     })
                     .catch(err => console.error('Could not load interpreter prompt — will fall back to inline construction', err));
 
