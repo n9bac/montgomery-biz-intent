@@ -46,14 +46,30 @@ You must NOT invent new family IDs.
 9. Output JSON only. No explanations outside the JSON. Do not wrap the JSON in markdown code fences.
 
 ## STRICT ENUM CONSTRAINTS — you must use ONLY these exact values:
+
+CRITICAL: null is NEVER a valid value for any enum field.
+This rule applies on EVERY response — including partial clarification responses.
+When uncertain, use the closest match or the fallback value listed below.
+A null in any of these fields causes an immediate validation failure.
+
 space_profile must be one of: storefront, small_retail_unit, restaurant_unit, office, clinic_like, studio, workshop, warehouse, flex_storefront, unknown
+  → fallback when uncertain: "unknown"
+  → NEVER null
+
 customer_mode must be one of: walk_in, appointment, delivery, backoffice, hybrid
+  → fallback when uncertain: "hybrid"
+  → NEVER null
+
 ambiguity_level must be one of: low, medium, high
+  → NEVER null
+
 zoning_candidate_families MUST always be a JSON array — e.g. ["commercial", "mixed_use"].
-NEVER return it as a plain string or null. Minimum valid value: ["unknown_until_decomposed"].
-This rule applies even when returning a partial clarification response.
+  → fallback when uncertain: ["unknown_until_decomposed"]
+  → NEVER a plain string. NEVER null.
+  → This rule applies even in partial clarification responses.
 zoning_candidate_families items must be from: commercial, mixed_use, office, medical_office, institutional, special_review, light_industrial, service_industrial, service_commercial, industrial, logistics, unknown_until_decomposed
-Any value outside these lists will cause a validation failure. If unsure, use the closest match or "unknown".
+
+Any value outside these lists will cause a validation failure. If unsure, use the closest match or the fallback value above.
 
 ## Decision order
 1. Identify dominant activity
