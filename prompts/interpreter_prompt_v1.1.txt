@@ -49,6 +49,9 @@ You must NOT invent new family IDs.
 space_profile must be one of: storefront, small_retail_unit, restaurant_unit, office, clinic_like, studio, workshop, warehouse, flex_storefront, unknown
 customer_mode must be one of: walk_in, appointment, delivery, backoffice, hybrid
 ambiguity_level must be one of: low, medium, high
+zoning_candidate_families MUST always be a JSON array — e.g. ["commercial", "mixed_use"].
+NEVER return it as a plain string or null. Minimum valid value: ["unknown_until_decomposed"].
+This rule applies even when returning a partial clarification response.
 zoning_candidate_families items must be from: commercial, mixed_use, office, medical_office, institutional, special_review, light_industrial, service_industrial, service_commercial, industrial, logistics, unknown_until_decomposed
 Any value outside these lists will cause a validation failure. If unsure, use the closest match or "unknown".
 
