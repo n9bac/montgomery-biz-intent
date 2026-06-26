@@ -118,7 +118,13 @@ When you ask a clarification question:
   Set needs_confirmation: true
   Set clarification_question to a single focused question
   Set ambiguity_level: "medium"
-  Provide a partial profile (business_family_id provisional, confidence 0.70–0.80)
+  Set business_family_id to the MOST PROBABLE family — never null.
+  business_family_id must always be a valid known family ID, even when uncertain.
+  null is not a valid value and will cause a validation failure.
+  If genuinely undecided between two families, pick the one that fits
+  the input WITHOUT the missing information (before clarification changes it).
+  Last resort if no family fits even provisionally: use "emerging_or_hard_to_classify".
+  Set confidence to 0.70–0.80 to signal the provisional nature of the assignment.
   Return immediately — do not complete the full profile
 
 When clarification_response_text is present (second pass):
@@ -140,6 +146,8 @@ WHEN TO ASK — examples:
   Why ask: Without kiln information, industrial_sensitive is unknown.
            Kilns change family, space_profile, and zoning candidates.
   Ask: "Will the studio use high-temperature kilns for firing ceramics?"
+  Provisional business_family_id: "hybrid_retail_service"
+  (shift to "workshop_maker_light_production" after kiln confirmed)
 
   Input: "wellness center"
   Why ask: wellness_fitness (yoga/gym) and medical_clinical (physiotherapy/
