@@ -338,9 +338,9 @@
                                 'REFERENCE FAMILIES (use only these family IDs):\n' + familiesJson)
                             .replace('{{OUTPUT_SCHEMA}}',
                                 'OUTPUT SCHEMA (produce exactly this JSON structure):\n' + schemaJson);
-                        console.log('[Prompt] Using interpreter_prompt_v1.txt, chars:', systemInstruction.length);
+                        console.log('[Prompt] Using interpreter_prompt_v1.1.txt, chars:', systemInstruction.length);
                     } else {
-                        console.warn('[Prompt] interpreter_prompt_v1.txt not loaded — using inline fallback');
+                        console.warn('[Prompt] interpreter_prompt_v1.1.txt not loaded — using inline fallback');
                         systemInstruction = 'You are the AI Interpreter for Montgomery Biz Intent. Translate the investor business idea into a structured JSON profile matching the output schema exactly. Output JSON only, no markdown fences.\n\nREFERENCE FAMILIES:\n' + familiesJson + '\n\nOUTPUT SCHEMA:\n' + schemaJson;
                     }
 
