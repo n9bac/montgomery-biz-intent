@@ -1283,7 +1283,7 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                         layer.setStyle({ fillColor: getColor(val, viewMode) });
                     });
                 }
-            }, [viewMode]);
+            }, [viewMode, uiMode]);
 
             useEffect(() => {
                 if (isMockMode && (uiMode === 'map' || uiMode === 'report')) {
