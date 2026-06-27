@@ -78,6 +78,122 @@
         // API Key
         const CENSUS_API_KEY = "c113b395a568d62a02db2a565e8e600f5e1ae9f1";
 
+        // ─── Interpreter Tool Definition ───────────────────────────────────────────
+        // Schema is enforced at the API level via tool_use / tool_choice.
+        // interpreter_prompt_v1.2.txt is a pure behavioral guide — no output-format
+        // instructions needed there. {{OUTPUT_SCHEMA}} placeholder is no longer used.
+        const INTERPRETER_TOOL = {
+            name: "interpret_business",
+            description: "Translate an investor's natural-language business idea into a structured business profile for the deterministic analytical engine.",
+            input_schema: {
+                type: "object",
+                properties: {
+                    business_text:        { type: "string" },
+                    priority_text:        { type: ["string", "null"] },
+                    canonical_label:      { type: "string" },
+                    business_family_id:   { type: "string" },
+                    secondary_family_id:  { type: ["string", "null"] },
+                    reasoning_summary:    { type: "string" },
+                    customer_mode: {
+                        type: "string",
+                        enum: ["walk_in","appointment","delivery","backoffice","hybrid"]
+                    },
+                    space_profile: {
+                        type: "string",
+                        enum: ["storefront","small_retail_unit","restaurant_unit","office",
+                               "clinic_like","studio","workshop","warehouse",
+                               "flex_storefront","unknown"]
+                    },
+                    location_needs: {
+                        type: "object",
+                        properties: {
+                            visibility:                   { type: "number", minimum: 0, maximum: 1 },
+                            footfall:                     { type: "number", minimum: 0, maximum: 1 },
+                            parking:                      { type: "number", minimum: 0, maximum: 1 },
+                            transit:                      { type: "number", minimum: 0, maximum: 1 },
+                            affluent_area:                { type: "number", minimum: 0, maximum: 1 },
+                            family_area:                  { type: "number", minimum: 0, maximum: 1 },
+                            nightlife_area:               { type: "number", minimum: 0, maximum: 1 },
+                            low_rent_priority:            { type: "number", minimum: 0, maximum: 1 },
+                            vehicle_access:               { type: "number", minimum: 0, maximum: 1 },
+                            luxury_cluster_fit:           { type: "number", minimum: 0, maximum: 1 },
+                            compatible_business_cluster:  { type: "number", minimum: 0, maximum: 1 },
+                            daytime_worker_concentration: { type: "number", minimum: 0, maximum: 1 },
+                            high_professional_cluster:    { type: "number", minimum: 0, maximum: 1 }
+                        },
+                        required: ["visibility","footfall","parking","transit","affluent_area",
+                                   "family_area","nightlife_area","low_rent_priority","vehicle_access",
+                                   "luxury_cluster_fit","compatible_business_cluster",
+                                   "daytime_worker_concentration","high_professional_cluster"],
+                        additionalProperties: false
+                    },
+                    activity_profile: {
+                        type: "object",
+                        properties: {
+                            daytime:                { type: "number", minimum: 0, maximum: 1 },
+                            evening:                { type: "number", minimum: 0, maximum: 1 },
+                            noise_tolerance_needed: { type: "number", minimum: 0, maximum: 1 },
+                            delivery_logistics:     { type: "number", minimum: 0, maximum: 1 }
+                        },
+                        required: ["daytime","evening","noise_tolerance_needed","delivery_logistics"],
+                        additionalProperties: false
+                    },
+                    target_customer_origin: {
+                        type: "array",
+                        minItems: 1,
+                        items: {
+                            type: "object",
+                            properties: {
+                                origin: {
+                                    type: "string",
+                                    enum: ["resident","daytime_worker","destination_visitor","passing_traffic"]
+                                },
+                                weight: { type: "number", minimum: 0, maximum: 1 }
+                            },
+                            required: ["origin","weight"]
+                        }
+                    },
+                    zoning_candidate_families: {
+                        type: "array",
+                        minItems: 1,
+                        items: {
+                            type: "string",
+                            enum: ["commercial","mixed_use","office","medical_office","institutional",
+                                   "special_review","light_industrial","service_industrial",
+                                   "service_commercial","industrial","logistics","unknown_until_decomposed"]
+                        }
+                    },
+                    detected_flags: {
+                        type: "object",
+                        properties: {
+                            alcohol_sensitive:    { type: "boolean" },
+                            child_sensitive:      { type: "boolean" },
+                            medical_sensitive:    { type: "boolean" },
+                            industrial_sensitive: { type: "boolean" },
+                            hybrid_concept:       { type: "boolean" }
+                        },
+                        required: ["alcohol_sensitive","child_sensitive","medical_sensitive",
+                                   "industrial_sensitive","hybrid_concept"],
+                        additionalProperties: false
+                    },
+                    confidence:             { type: "number", minimum: 0, maximum: 1 },
+                    ambiguity_level:        { type: "string", enum: ["low","medium","high"] },
+                    needs_confirmation:     { type: "boolean" },
+                    clarification_question: { type: ["string","null"] },
+                    interpretation_notes:   { type: "array", items: { type: "string" } },
+                    model_gaps:             { type: "array", items: { type: "string" } }
+                },
+                required: [
+                    "business_text","priority_text","canonical_label","business_family_id",
+                    "secondary_family_id","reasoning_summary","customer_mode","space_profile",
+                    "location_needs","activity_profile","target_customer_origin",
+                    "zoning_candidate_families","detected_flags","confidence","ambiguity_level",
+                    "needs_confirmation","clarification_question","interpretation_notes","model_gaps"
+                ]
+            }
+        };
+        // ──────────────────────────────────────────────────────────────────────────
+
         function App() {
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
@@ -308,43 +424,18 @@
                     const familiesJson = JSON.stringify(
                         businessFamilies.map(f => ({ id: f.id, label: f.label, examples: f.examples }))
                     );
-                    const schemaJson = JSON.stringify({
-                        business_text: "string",
-                        priority_text: "string or null",
-                        canonical_label: "string",
-                        business_family_id: "one of the family IDs above",
-                        secondary_family_id: "family ID or null",
-                        reasoning_summary: "string",
-                        customer_mode: "walk_in | appointment | delivery | backoffice | hybrid",
-                        space_profile: "storefront | small_retail_unit | restaurant_unit | office | clinic_like | studio | workshop | warehouse | flex_storefront | unknown",
-                        location_needs: {
-                            visibility: 0.0, footfall: 0.0, parking: 0.0, transit: 0.0,
-                            affluent_area: 0.0, family_area: 0.0, nightlife_area: 0.0,
-                            low_rent_priority: 0.0, vehicle_access: 0.0,
-                            luxury_cluster_fit: 0.0, compatible_business_cluster: 0.5, daytime_worker_concentration: 0.0
-                        },
-                        activity_profile: { daytime: 0.0, evening: 0.0, noise_tolerance_needed: 0.0, delivery_logistics: 0.0 },
-                        target_customer_origin: [{ origin: "resident | daytime_worker | destination_visitor | passing_traffic", weight: 0.0 }],
-                        zoning_candidate_families: ["commercial | mixed_use | office | medical_office | institutional | special_review | light_industrial | service_industrial | service_commercial | industrial | logistics | unknown_until_decomposed"],
-                        detected_flags: { alcohol_sensitive: false, child_sensitive: false, medical_sensitive: false, industrial_sensitive: false, hybrid_concept: false },
-                        confidence: 0.0,
-                        ambiguity_level: "low | medium | high",
-                        needs_confirmation: false,
-                        clarification_question: "string or null",
-                        interpretation_notes: []
-                    }, null, 2);
+                    // schemaJson removed — output schema is now enforced via INTERPRETER_TOOL.input_schema
 
                     let systemInstruction;
                     if (interpreterPromptTemplate) {
                         systemInstruction = interpreterPromptTemplate
                             .replace('{{REFERENCE_FAMILIES}}',
                                 'REFERENCE FAMILIES (use only these family IDs):\n' + familiesJson)
-                            .replace('{{OUTPUT_SCHEMA}}',
-                                'OUTPUT SCHEMA (produce exactly this JSON structure):\n' + schemaJson);
-                        console.log('[Prompt] Using interpreter_prompt_v1.txt, chars:', systemInstruction.length);
+                            .replace('{{OUTPUT_SCHEMA}}', ''); // placeholder kept for compat; schema is in INTERPRETER_TOOL
+                        console.log('[Prompt] Using prompt template, chars:', systemInstruction.length);
                     } else {
-                        console.warn('[Prompt] interpreter_prompt_v1.txt not loaded — using inline fallback');
-                        systemInstruction = 'You are the AI Interpreter for Montgomery Biz Intent. Translate the investor business idea into a structured JSON profile matching the output schema exactly. Output JSON only, no markdown fences.\n\nREFERENCE FAMILIES:\n' + familiesJson + '\n\nOUTPUT SCHEMA:\n' + schemaJson;
+                        console.warn('[Prompt] Prompt template not loaded — using inline fallback');
+                        systemInstruction = 'You are the AI Interpreter for Montgomery Business Companion. Translate the investor business idea into a structured profile. Use only the following family IDs.\n\nREFERENCE FAMILIES:\n' + familiesJson;
                     }
 
 
@@ -358,15 +449,16 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                         model: "claude-haiku-4-5",
                         max_tokens: 4096,
                         system: systemInstruction,
+                        tools: [INTERPRETER_TOOL],
+                        tool_choice: { type: "tool", name: "interpret_business" },
                         messages: [{ role: "user", content: userPrompt }]
                     });
 
-                    if (!response.content || !response.content[0] || !response.content[0].text) {
-                        throw new Error("Empty response from AI");
-                    }
-                    const rawText = response.content[0].text.trim()
-                        .replace(/^```json\s*/i, '').replace(/```\s*$/, '');
-                    const result = JSON.parse(rawText);
+                    // With tool_choice forced, the API guarantees a tool_use block
+                    // whose .input already matches INTERPRETER_TOOL.input_schema.
+                    const toolUseBlock = response.content.find(b => b.type === 'tool_use');
+                    if (!toolUseBlock) throw new Error("No tool_use block in response — unexpected stop_reason: " + response.stop_reason);
+                    const result = toolUseBlock.input;
 
                     // --- Validation Gate ---
                     const validateResult = (data) => {
