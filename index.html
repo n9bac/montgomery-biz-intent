@@ -743,9 +743,11 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
 
             const getColor = (val, mode) => {
                 const numVal = typeof val === 'string' ? parseFloat(val) : val;
-                if (mode === 'income') {
-                    return numVal > 80000 ? '#065f46' : numVal > 60000 ? '#059669' : numVal > 40000 ? '#34d399' : numVal > 20000 ? '#a7f3d0' : '#ecfdf5';
+                if (mode === 'attractiveness') {
+                    // Green scale — Commercial Gravity (distinct from purple Opportunity)
+                    return numVal > 0.8 ? '#065f46' : numVal > 0.6 ? '#059669' : numVal > 0.4 ? '#34d399' : numVal > 0.2 ? '#a7f3d0' : '#ecfdf5';
                 }
+                // Purple scale — Opportunity / Underserved Demand
                 return numVal > 0.8 ? '#5b21b6' : numVal > 0.6 ? '#7c3aed' : numVal > 0.4 ? '#a78bfa' : numVal > 0.2 ? '#ddd6fe' : '#f5f3ff';
             };
 
@@ -1069,9 +1071,7 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                         layer.on('click', () => setSelectedTract(f.properties));
                         layer.bindPopup(() => {
                             const p = f.properties;
-                            // const currentModeLabel = viewModeRef.current === 'income' ? 'Spending Power' : 'Underserved Demand';
-							// fix
-							const currentModeLabel = viewModeRef.current === 'attractiveness' ? 'Commercial Gravity' : 'Underserved Demand';
+                            const currentModeLabel = viewModeRef.current === 'income' ? 'Spending Power' : 'Underserved Demand';
                             
                             const techHelp = (content) => `<span class="inline-flex items-center justify-center w-3.5 h-3.5 ml-1 text-[8px] font-bold text-slate-300 border border-slate-200 rounded-full cursor-help hover:bg-slate-100 hover:text-indigo-500" title="Technical Details: ${content}">i</span>`;
                             const bizHelp = (meaning) => `title="Business Meaning: ${meaning}" class="cursor-help border-b border-dotted border-slate-300 pb-0.5"`;
@@ -1563,13 +1563,13 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
 										<p className="text-xs text-slate-500 leading-snug">Choose your investment focus to rank and reveal the top 3 locations.</p>
 										<div className="grid grid-cols-2 gap-3">
 											<button
-												onClick={() => setStrategicLens('opportunity')}
+												onClick={() => { setStrategicLens('opportunity'); setViewMode('opportunity'); }}
 												className={`p-3 rounded-xl border-2 text-left transition ${strategicLens === 'opportunity' ? 'border-purple-600 bg-purple-50' : 'border-slate-200 hover:border-slate-300'}`}>
 												<p className="text-[10px] font-black uppercase tracking-widest text-purple-700">Opportunity</p>
 												<p className="text-[9px] text-slate-500 mt-0.5">Underserved Demand</p>
 											</button>
 											<button
-												onClick={() => setStrategicLens('attractiveness')}
+												onClick={() => { setStrategicLens('attractiveness'); setViewMode('attractiveness'); }}
 												className={`p-3 rounded-xl border-2 text-left transition ${strategicLens === 'attractiveness' ? 'border-emerald-600 bg-emerald-50' : 'border-slate-200 hover:border-slate-300'}`}>
 												<p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Attractiveness</p>
 												<p className="text-[9px] text-slate-500 mt-0.5">Commercial Gravity</p>
