@@ -1490,7 +1490,10 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                                                             {Object.entries(interpretedIntent.activity_profile).map(([k, v]) => (
                                                                 <div key={k} className="flex flex-col">
                                                                     <div className="flex justify-between text-[10px] font-bold mb-1">
-                                                                        <span className="text-slate-500 uppercase">{k.replace(/_/g, ' ')}</span>
+                                                                        <span
+                                                                            className="text-slate-500 uppercase cursor-help border-b border-dotted border-slate-300"
+                                                                            title={({daytime:"Proportion of business activity during standard daytime hours (8 am–6 pm).",evening:"Proportion of business activity in the evening (6 pm–midnight).",noise_tolerance_needed:"Degree to which the business generates noise or requires neighbouring tolerance for it.",delivery_logistics:"Importance of delivery vehicle access and logistics operations to daily business."})[k] || k.replace(/_/g, ' ')}
+                                                                        >{k.replace(/_/g, ' ')}</span>
                                                                         <span className="text-slate-800">{(v * 100).toFixed(0)}%</span>
                                                                     </div>
                                                                     <div className="w-full bg-slate-100 h-1 rounded-full overflow-hidden">
@@ -1521,6 +1524,20 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                                                         </div>
                                                     </div>
                                                 </div>
+
+                                                {interpretedIntent.model_gaps && interpretedIntent.model_gaps.length > 0 && (
+                                                    <details className="group border border-amber-100 bg-amber-50 rounded-xl overflow-hidden">
+                                                        <summary className="list-none cursor-pointer flex items-center justify-between px-4 py-2.5 text-[10px] font-black text-amber-700 uppercase tracking-widest hover:bg-amber-100 transition">
+                                                            <span>⚠ Model Limitations ({interpretedIntent.model_gaps.length})</span>
+                                                            <span className="text-amber-400 group-open:rotate-180 transition-transform inline-block">▾</span>
+                                                        </summary>
+                                                        <div className="px-4 pb-3 space-y-1.5">
+                                                            {interpretedIntent.model_gaps.map((gap, i) => (
+                                                                <p key={i} className="text-[10px] text-amber-800 leading-snug">• {gap}</p>
+                                                            ))}
+                                                        </div>
+                                                    </details>
+                                                )}
 
                                                 <div>
                                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Zoning Candidates</p>
