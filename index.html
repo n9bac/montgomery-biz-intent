@@ -1,4 +1,4 @@
-<!-- index.html v1.9 — migrates to Claude API; extracts system prompt to interpreter_prompt_v1.1.txt with {{REFERENCE_FAMILIES}} and {{OUTPUT_SCHEMA}} placeholders; adds explicit enum constraints; raises max_tokens to 4096. Analytical layer unchanged. -->
+<!-- index.html v1.9 — migrates to Claude API; extracts system prompt to interpreter_prompt_v1.txt with {{REFERENCE_FAMILIES}} and {{OUTPUT_SCHEMA}} placeholders; adds explicit enum constraints; raises max_tokens to 4096. Analytical layer unchanged. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -104,6 +104,7 @@
             const [isInterpreting, setIsInterpreting] = useState(false);
 			const [keyConfirmed, setKeyConfirmed] = useState(false);
 			const [topMatches, setTopMatches] = useState([]);
+				const [strategicLens, setStrategicLens] = useState(null); // null = not chosen; 'opportunity' | 'attractiveness'
 			
 			const [schemaOpen, setSchemaOpen] = useState(false);
 			const [isMockMode, setIsMockMode] = useState(false);
@@ -217,11 +218,11 @@
                     .catch(err => console.error('Could not load advanced config', err));
 
                 // --- interpreter system prompt (versioned file) ---
-                fetch('/prompts/interpreter_prompt_v1.1.txt', { cache: 'no-store' })
+                fetch('/prompts/interpreter_prompt_v1.txt')
                     .then(r => r.text())
                     .then(text => {
                         setInterpreterPromptTemplate(text);
-                        console.log('[Prompt] interpreter_prompt_v1.1.txt loaded, chars:', text.length);
+                        console.log('[Prompt] interpreter_prompt_v1.txt loaded, chars:', text.length);
                     })
                     .catch(err => console.error('Could not load interpreter prompt — will fall back to inline construction', err));
 
@@ -279,6 +280,8 @@
                 
                 setIsInterpreting(true);
                 setInterpretedIntent(null);
+                setStrategicLens(null);
+                setTopMatches([]);
                 
                 try {
                     if (!window.Anthropic) {
@@ -338,9 +341,9 @@
                                 'REFERENCE FAMILIES (use only these family IDs):\n' + familiesJson)
                             .replace('{{OUTPUT_SCHEMA}}',
                                 'OUTPUT SCHEMA (produce exactly this JSON structure):\n' + schemaJson);
-                        console.log('[Prompt] Using interpreter_prompt_v1.1.txt, chars:', systemInstruction.length);
+                        console.log('[Prompt] Using interpreter_prompt_v1.txt, chars:', systemInstruction.length);
                     } else {
-                        console.warn('[Prompt] interpreter_prompt_v1.1.txt not loaded — using inline fallback');
+                        console.warn('[Prompt] interpreter_prompt_v1.txt not loaded — using inline fallback');
                         systemInstruction = 'You are the AI Interpreter for Montgomery Biz Intent. Translate the investor business idea into a structured JSON profile matching the output schema exactly. Output JSON only, no markdown fences.\n\nREFERENCE FAMILIES:\n' + familiesJson + '\n\nOUTPUT SCHEMA:\n' + schemaJson;
                     }
 
@@ -1066,7 +1069,9 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                         layer.on('click', () => setSelectedTract(f.properties));
                         layer.bindPopup(() => {
                             const p = f.properties;
-                            const currentModeLabel = viewModeRef.current === 'income' ? 'Spending Power' : 'Underserved Demand';
+                            // const currentModeLabel = viewModeRef.current === 'income' ? 'Spending Power' : 'Underserved Demand';
+							// fix
+							const currentModeLabel = viewModeRef.current === 'attractiveness' ? 'Commercial Gravity' : 'Underserved Demand';
                             
                             const techHelp = (content) => `<span class="inline-flex items-center justify-center w-3.5 h-3.5 ml-1 text-[8px] font-bold text-slate-300 border border-slate-200 rounded-full cursor-help hover:bg-slate-100 hover:text-indigo-500" title="Technical Details: ${content}">i</span>`;
                             const bizHelp = (meaning) => `title="Business Meaning: ${meaning}" class="cursor-help border-b border-dotted border-slate-300 pb-0.5"`;
@@ -1241,21 +1246,25 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                     return f;
                 });
                 
-				if (interpretedIntent) {
+				if (interpretedIntent && strategicLens) {
+					const scoreKey = strategicLens === 'attractiveness' ? 'attractivenessScore' : 'opportunityScore';
 					const ranked = updatedGeo.features
 						.filter(f => f.properties.fit_summary && f.properties.fit_summary.total_fit_score > 0)
-						.sort((a, b) => b.properties.fit_summary.total_fit_score - a.properties.fit_summary.total_fit_score)
+						.sort((a, b) => parseFloat(b.properties[scoreKey] || 0) - parseFloat(a.properties[scoreKey] || 0))
 						.slice(0, 3)
 						.map(f => ({
 							tract: f.properties.TRACT,
 							geoid: f.properties.GEOID,
-							score: f.properties.fit_summary.total_fit_score,
+							score: parseFloat(f.properties[scoreKey] || 0),
+							lensLabel: strategicLens === 'attractiveness' ? 'Attractiveness' : 'Opportunity',
 							archetype: f.properties.archetype,
 							strongest: f.properties.fit_summary.strongest_matches,
 							income: f.properties.income,
 							family_area: f.properties.standardized_indicators?.family_proxy || 0
 						}));
 					setTopMatches(ranked);
+				} else if (!strategicLens) {
+					setTopMatches([]);
 				}
                 renderMap(updatedGeo);
                 
@@ -1264,13 +1273,13 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                     const match = updatedGeo.features.find(f => f.properties.GEOID === selectedTract.GEOID);
                     if (match) setSelectedTract(match.properties);
                 }
-            }, [geoJsonData, interpretedIntent, mappingConfig]);
+            }, [geoJsonData, interpretedIntent, mappingConfig, strategicLens]);
 
             useEffect(() => {
                 if (geoJsonLayerRef.current) {
                     geoJsonLayerRef.current.eachLayer((layer) => {
                         const props = layer.feature.properties;
-                        const val = viewMode === 'income' ? props.income : props.opportunityScore;
+                        const val = viewMode === 'attractiveness' ? parseFloat(props.attractivenessScore || 0) : parseFloat(props.opportunityScore || 0);
                         layer.setStyle({ fillColor: getColor(val, viewMode) });
                     });
                 }
@@ -1379,6 +1388,7 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
 													setInterpretedIntent(null);
 													setClarificationResponse('');
 													setTopMatches([]);
+													setStrategicLens(null);
 													setSelectedTract(null);
 													setIsMockMode(false);
 													setError(null);
@@ -1546,7 +1556,29 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                                                     </div>
                                                 )}
 
-												{topMatches.length > 0 && (
+												{/* Strategic Lens Selector */}
+								{interpretedIntent && !interpretedIntent.needs_confirmation && (
+									<div className="p-5 bg-white border-2 border-slate-200 rounded-2xl space-y-3">
+										<p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Strategic Lens</p>
+										<p className="text-xs text-slate-500 leading-snug">Choose your investment focus to rank and reveal the top 3 locations.</p>
+										<div className="grid grid-cols-2 gap-3">
+											<button
+												onClick={() => setStrategicLens('opportunity')}
+												className={`p-3 rounded-xl border-2 text-left transition ${strategicLens === 'opportunity' ? 'border-purple-600 bg-purple-50' : 'border-slate-200 hover:border-slate-300'}`}>
+												<p className="text-[10px] font-black uppercase tracking-widest text-purple-700">Opportunity</p>
+												<p className="text-[9px] text-slate-500 mt-0.5">Underserved Demand</p>
+											</button>
+											<button
+												onClick={() => setStrategicLens('attractiveness')}
+												className={`p-3 rounded-xl border-2 text-left transition ${strategicLens === 'attractiveness' ? 'border-emerald-600 bg-emerald-50' : 'border-slate-200 hover:border-slate-300'}`}>
+												<p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Attractiveness</p>
+												<p className="text-[9px] text-slate-500 mt-0.5">Commercial Gravity</p>
+											</button>
+										</div>
+									</div>
+								)}
+
+								{topMatches.length > 0 && (
 													<div className="p-6 bg-slate-900 rounded-2xl space-y-4">
 														<div className="flex justify-between items-center">
 															<p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Top 3 Recommended Locations</p>
@@ -1560,7 +1592,7 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
 																			<span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[9px] font-black flex items-center justify-center">{i+1}</span>
 																			<span className="text-white font-black text-sm">Tract {m.tract}</span>
 																		</div>
-																		<span className="bg-indigo-500 text-white px-2 py-0.5 rounded-full text-[10px] font-black">{(m.score * 100).toFixed(0)}% match</span>
+																		<span className="bg-indigo-500 text-white px-2 py-0.5 rounded-full text-[10px] font-black">{m.lensLabel}: {(m.score * 100).toFixed(0)}</span>
 																	</div>
 																	<p className="text-[10px] text-indigo-300 italic">{m.archetype}</p>
 																	<div className="flex flex-wrap gap-1">
@@ -1686,22 +1718,22 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                                     UNDERSERVED DEMAND
                                 </button>
                                 <button 
-                                    onClick={() => setViewMode('income')}
-                                    className={`flex-1 text-[10px] py-1.5 rounded-md font-bold transition ${viewMode === 'income' ? 'bg-white shadow text-emerald-700' : 'text-slate-400'}`}>
-                                    SPENDING POWER
+                                    onClick={() => setViewMode('attractiveness')}
+                                    className={`flex-1 text-[10px] py-1.5 rounded-md font-bold transition ${viewMode === 'attractiveness' ? 'bg-white shadow text-emerald-700' : 'text-slate-400'}`}>
+                                    COMMERCIAL GRAVITY
                                 </button>
                             </div>
 
                             <p className="text-[11px] text-slate-500 italic mb-4 leading-tight">
-                                {viewMode === 'income' ? 'Where people have strong purchasing capacity' : 'Where demand is high but competition is limited'}
+                                {viewMode === 'attractiveness' ? 'Where commercial density and demand converge' : 'Where demand is high but competition is limited'}
                             </p>
 
                             <div className="space-y-2">
-                                <p className="text-[10px] font-black text-slate-400 uppercase">{viewMode === 'income' ? 'Spending Power' : 'Opportunity Score'}</p>
+                                <p className="text-[10px] font-black text-slate-400 uppercase">{viewMode === 'attractiveness' ? 'Attractiveness Score' : 'Opportunity Score'}</p>
                                 {[0.8, 0.6, 0.4, 0.2, 0].map(val => (
                                     <div key={val} className="flex items-center gap-3 text-[11px] font-medium text-slate-600">
-                                        <div className="w-3 h-3 rounded-sm shadow-sm" style={{background: getColor(viewMode === 'income' ? (val + 0.1) * 100000 : val + 0.1, viewMode)}}></div>
-                                        <span>{viewMode === 'income' ? `$${(val*100000).toLocaleString()}+` : (val + 0.2).toFixed(1)}</span>
+                                        <div className="w-3 h-3 rounded-sm shadow-sm" style={{background: getColor(val + 0.1, viewMode)}}></div>
+                                        <span>{(val + 0.2).toFixed(1)}</span>
                                     </div>
                                 ))}
                             </div>
@@ -1745,8 +1777,8 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                                                 <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 pb-1 border-b">1. Market Persona</h3>
                                                 <p className="leading-relaxed">
                                                     This tract exhibits features of a <b>{selectedTract.archetype.toLowerCase()}</b>. 
-                                                    {viewMode === 'income' 
-                                                        ? " Viewing through the Spending Power lens highlights this area's role as a supporting demographic purchasing-capacity hub rather than just a commercial destination." 
+                                                    {viewMode === 'attractiveness' 
+                                                        ? " Viewing through the Commercial Gravity lens highlights where commercial density and demand converge for this location." 
                                                         : " The Underserved Demand view emphasizes the competitive vacuum and potential for new market entry."}
                                                 </p>
                                             </div>
