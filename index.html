@@ -1,4 +1,4 @@
-<!-- index.html v1.9 — migrates to Claude API; extracts system prompt to interpreter_prompt_v1.txt with {{REFERENCE_FAMILIES}} and {{OUTPUT_SCHEMA}} placeholders; adds explicit enum constraints; raises max_tokens to 4096. Analytical layer unchanged. -->
+<!-- index.html v1.2.0 — tool_use structured outputs (INTERPRETER_TOOL); model claude-sonnet-5; prompt is pure behavioral guide (interpreter_prompt_v1.2.txt). Analytical layer unchanged. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -446,7 +446,7 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
 `;
 
                     const response = await client.messages.create({
-                        model: "claude-haiku-4-5",
+                        model: "claude-sonnet-5",
                         max_tokens: 4096,
                         system: systemInstruction,
                         tools: [INTERPRETER_TOOL],
