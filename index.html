@@ -1,4 +1,4 @@
-<!-- index.html v1.2.0 — tool_use structured outputs (INTERPRETER_TOOL); model claude-sonnet-5; prompt is pure behavioral guide (interpreter_prompt_v1.2.txt). Analytical layer unchanged. -->
+<!-- index.html v1.2.1 — tract-first flow: map popup "Describe business here" button; location_context injected into interpreter when tract pinned; tract badge + dynamic placeholder in intent panel; two-option Start New Search (keep tract / full reset); pinned tract fit card in results. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -224,6 +224,8 @@
 			
 			const [schemaOpen, setSchemaOpen] = useState(false);
 			const [isMockMode, setIsMockMode] = useState(false);
+			const [showResetConfirm, setShowResetConfirm] = useState(false);
+			const [pinnedTractFit, setPinnedTractFit] = useState(null);
 
             const viewModeRef = useRef(viewMode);
 			const showTractOnMap = (geoid) => {
@@ -244,6 +246,29 @@
 					}
 				}, 150);
 			};
+			// Expose for Leaflet popup buttons (outside React DOM)
+			window._mbcGoToIntent = () => setUiMode('intent');
+
+			// pinnedTractFit: derived from selectedTract.fit_summary (added by renderMap via updatedGeo).
+			// When the user clicks a tract after analysis, onEachFeature captures f.properties from
+			// updatedGeo (which already carries fit_summary), so this useEffect fires correctly.
+			useEffect(() => {
+				if (!interpretedIntent || !selectedTract || !selectedTract.fit_summary) {
+					setPinnedTractFit(null);
+					return;
+				}
+				setPinnedTractFit({
+					tract:           selectedTract.TRACT,
+					geoid:           selectedTract.GEOID,
+					archetype:       selectedTract.archetype,
+					fitScore:        selectedTract.fit_summary.total_fit_score,
+					proxyConfidence: selectedTract.fit_summary.proxy_confidence_score,
+					strongest:       selectedTract.fit_summary.strongest_matches,
+					opportunityScore: selectedTract.opportunityScore,
+					transitScore:    selectedTract.transitAccessScore,
+				});
+			}, [interpretedIntent, selectedTract]);
+
 			const confirmApiKey = async () => {
 				if (!claudeApiKey.trim()) return;
 				try {
@@ -443,6 +468,7 @@
 business_text: "${investorDescription}"
 priority_text: "${investorPriorities || 'none'}"
 ${clarificationResponse ? `clarification_response_text: "${clarificationResponse}"` : ''}
+${selectedTract ? `location_context: "The investor has already selected and fixed a specific census tract — do not suggest alternative locations. Tract ${selectedTract.TRACT} (GEOID ${selectedTract.GEOID}). Key characteristics: Transit Access Score ${selectedTract.transitAccessScore}, Relative Business Presence ${((selectedTract.normBizDensity || 0) * 100).toFixed(1)}%, Income Index ${(selectedTract.normInc || 0).toFixed(2)}, Opportunity Score ${selectedTract.opportunityScore}, Archetype: ${selectedTract.archetype}."` : ''}
 `;
 
                     const response = await client.messages.create({
@@ -1310,6 +1336,11 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                                             </div>
                                         </div>
                                     </details>
+                                    <div class="border-t border-slate-100 pt-3 mt-1 pb-1">
+                                        <button onclick="window._mbcGoToIntent()" style="width:100%;padding:8px 0;background:#1e293b;color:white;border:none;border-radius:8px;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.08em;cursor:pointer;">
+                                            Describe business here →
+                                        </button>
+                                    </div>
                                 </div>
                             `;
                         }, { className: 'custom-popup', maxWidth: 300 });
@@ -1420,10 +1451,17 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
                                     <div className="space-y-4">
                                         <div>
                                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Business Description</label>
+											{selectedTract && (
+												<div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-100 rounded-xl mb-2">
+													<span className="text-blue-500 text-xs">📍</span>
+													<span className="text-[10px] font-black text-blue-700 uppercase tracking-widest">Tract {selectedTract.TRACT} · Location fixed</span>
+													<button onClick={() => { setSelectedTract(null); setShowResetConfirm(false); }} className="ml-auto text-[9px] text-slate-400 hover:text-slate-600 underline">Clear</button>
+												</div>
+											)}
 											<textarea 
 												value={investorDescription}
 												onChange={(e) => setInvestorDescription(e.target.value)}
-												placeholder="e.g. I want to open a small independent coffee shop with some bakery items."
+												placeholder={selectedTract ? `Describe your business idea for Tract ${selectedTract.TRACT}…` : "e.g. I want to open a small independent coffee shop with some bakery items."}
 												readOnly={!!interpretedIntent}
 												className={`w-full h-32 p-4 border rounded-xl text-sm outline-none transition ${interpretedIntent ? 'bg-slate-100 border-slate-200 text-slate-500 cursor-not-allowed' : 'bg-slate-50 border-slate-200 focus:ring-2 focus:ring-slate-900'}`}
 											/>
@@ -1472,20 +1510,65 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
 												className={`w-full py-4 rounded-xl font-black text-xs uppercase tracking-widest transition ${!investorDescription || isInterpreting ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-900 text-white hover:bg-slate-800 shadow-lg'}`}>
 												{isInterpreting ? 'Interpreting...' : 'Read Investor Intent'}
 											</button>
+										) : showResetConfirm ? (
+											<div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+												<p className="text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">Keep Tract {selectedTract?.TRACT}?</p>
+												<button
+													onClick={() => {
+														setInvestorDescription('');
+														setInvestorPriorities('');
+														setInterpretedIntent(null);
+														setClarificationResponse('');
+														setTopMatches([]);
+														setStrategicLens(null);
+														setPinnedTractFit(null);
+														setIsMockMode(false);
+														setError(null);
+														setErrorIsExternal(false);
+														setShowErrorDialog(false);
+														setShowResetConfirm(false);
+													}}
+													className="w-full py-3 rounded-xl font-black text-xs uppercase tracking-widest transition bg-blue-600 text-white hover:bg-blue-700 shadow-sm">
+													📍 Keep tract · New business
+												</button>
+												<button
+													onClick={() => {
+														setInvestorDescription('');
+														setInvestorPriorities('');
+														setInterpretedIntent(null);
+														setClarificationResponse('');
+														setTopMatches([]);
+														setStrategicLens(null);
+														setSelectedTract(null);
+														setPinnedTractFit(null);
+														setIsMockMode(false);
+														setError(null);
+														setErrorIsExternal(false);
+														setShowErrorDialog(false);
+														setShowResetConfirm(false);
+													}}
+													className="w-full py-3 rounded-xl font-black text-xs uppercase tracking-widest transition bg-slate-700 text-white hover:bg-slate-900 shadow-sm">
+													↩ Full reset
+												</button>
+											</div>
 										) : (
 											<button 
 												onClick={() => {
-													setInvestorDescription('');
-													setInvestorPriorities('');
-													setInterpretedIntent(null);
-													setClarificationResponse('');
-													setTopMatches([]);
-													setStrategicLens(null);
-													setSelectedTract(null);
-													setIsMockMode(false);
-													setError(null);
-													setErrorIsExternal(false);
-													setShowErrorDialog(false);
+													if (selectedTract) {
+														setShowResetConfirm(true);
+													} else {
+														setInvestorDescription('');
+														setInvestorPriorities('');
+														setInterpretedIntent(null);
+														setClarificationResponse('');
+														setTopMatches([]);
+														setStrategicLens(null);
+														setPinnedTractFit(null);
+														setIsMockMode(false);
+														setError(null);
+														setErrorIsExternal(false);
+														setShowErrorDialog(false);
+													}
 												}}
 												className="w-full py-4 rounded-xl font-black text-xs uppercase tracking-widest transition bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg">
 												↩ Start New Search
@@ -1687,7 +1770,36 @@ ${clarificationResponse ? `clarification_response_text: "${clarificationResponse
 									</div>
 								)}
 
-								{topMatches.length > 0 && (
+								{pinnedTractFit && interpretedIntent && (
+													<div className="p-5 bg-blue-950 rounded-2xl space-y-3 border border-blue-900">
+														<div className="flex justify-between items-center">
+															<p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">📍 Your Selected Location</p>
+															<span className="bg-blue-600 text-white px-2 py-0.5 rounded-full text-[10px] font-black">{(pinnedTractFit.fitScore * 100).toFixed(0)}% Fit</span>
+														</div>
+														<div className="flex justify-between items-center">
+															<span className="text-white font-black text-sm">Tract {pinnedTractFit.tract}</span>
+															<span className="text-blue-300 text-[10px] italic">{pinnedTractFit.archetype}</span>
+														</div>
+														{pinnedTractFit.strongest.length > 0 && (
+															<div className="flex flex-wrap gap-1">
+																{pinnedTractFit.strongest.map(s => (
+																	<span key={s} className="text-[9px] bg-emerald-900/50 text-emerald-300 px-1.5 py-0.5 rounded font-bold uppercase">✓ {s}</span>
+																))}
+															</div>
+														)}
+														<div className="flex gap-3 text-[10px] text-blue-300">
+															<span>Transit {pinnedTractFit.transitScore}</span>
+															<span>·</span>
+															<span>Analytical confidence {(pinnedTractFit.proxyConfidence * 100).toFixed(0)}%</span>
+														</div>
+														<button onClick={() => showTractOnMap(pinnedTractFit.geoid)}
+															className="w-full py-1.5 bg-blue-900 hover:bg-blue-700 text-white rounded-lg text-[9px] font-black uppercase tracking-widest transition">
+															Show on Map
+														</button>
+													</div>
+												)}
+
+													{topMatches.length > 0 && (
 													<div className="p-6 bg-slate-900 rounded-2xl space-y-4">
 														<div className="flex justify-between items-center">
 															<p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Top 3 Recommended Locations</p>
