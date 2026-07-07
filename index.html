@@ -1,4 +1,4 @@
-<!-- index.html v1.2.1 — tract-first flow: map popup "Describe business here" button; location_context injected into interpreter when tract pinned; tract badge + dynamic placeholder in intent panel; two-option Start New Search (keep tract / full reset); pinned tract fit card in results. -->
+<!-- index.html v1.2.2 — separate data load errors from AI interpreter error dialog; amber banner replaces modal for map data failures: map popup "Describe business here" button; location_context injected into interpreter when tract pinned; tract badge + dynamic placeholder in intent panel; two-option Start New Search (keep tract / full reset); pinned tract fit card in results. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -199,6 +199,7 @@
             const [error, setError] = useState(null);
             const [errorIsExternal, setErrorIsExternal] = useState(false);
             const [showErrorDialog, setShowErrorDialog] = useState(false);
+            const [dataLoadError, setDataLoadError] = useState(null);
             const [uiMode, setUiMode] = useState('intent'); // Defaults to intent for prototype focus
             const [claudeApiKey, setClaudeApiKey] = useState('');
 			const [apiKeySubmitted, setApiKeySubmitted] = useState(false);
@@ -1168,10 +1169,8 @@ ${selectedTract ? `location_context: "The investor has already selected and fixe
                     setGeoJsonData(tigerGeo);
                     setLoading(false);
                 } catch (err) {
-                    console.error(err);
-                    setError(err.message);
-                    setErrorIsExternal(false);
-                    setShowErrorDialog(true);
+                    console.error('[DataLoad] Failed:', err);
+                    setDataLoadError(err.message || 'One or more data sources could not be reached. Map data may be unavailable.');
                     setLoading(false);
                 }
             };
@@ -1959,6 +1958,16 @@ ${selectedTract ? `location_context: "The investor has already selected and fixe
                                 ))}
                             </div>
                         </div>
+                        {dataLoadError && (
+                            <div className="absolute top-0 left-0 right-0 z-[1500] bg-amber-50 border-b border-amber-200 px-4 py-3 flex items-start gap-3">
+                                <span className="text-amber-500 text-sm mt-0.5 shrink-0">⚠</span>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">Map Data Unavailable</p>
+                                    <p className="text-[10px] text-amber-600 mt-0.5 leading-relaxed">Could not load census or map data. The Investor Intent panel still works — describe your business and the AI will still interpret it. Reload the page to retry the map.</p>
+                                </div>
+                                <button onClick={() => setDataLoadError(null)} className="shrink-0 text-amber-400 hover:text-amber-700 text-xs font-black">✕</button>
+                            </div>
+                        )}
                         <div id="map" className="flex-1 h-full w-full"></div>
                     </div>
 
