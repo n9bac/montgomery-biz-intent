@@ -1,4 +1,4 @@
-<!-- index.html v1.2.3 — fillOpacity 0.8→0.45 (streets visible through tracts); address geocoder search bar (Nominatim + turf.booleanPointInPolygon) to locate and pin a tract by address: map popup "Describe business here" button; location_context injected into interpreter when tract pinned; tract badge + dynamic placeholder in intent panel; two-option Start New Search (keep tract / full reset); pinned tract fit card in results. -->
+<!-- index.html v1.2.4 — Strategic Lens reframed in place-first mode: subtitle and top-3 heading adapt when a tract is pinned (evaluate vs. rank): map popup "Describe business here" button; location_context injected into interpreter when tract pinned; tract badge + dynamic placeholder in intent panel; two-option Start New Search (keep tract / full reset); pinned tract fit card in results. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1817,7 +1817,7 @@ ${selectedTract ? `location_context: "The investor has already selected and fixe
 								{interpretedIntent && !interpretedIntent.needs_confirmation && (
 									<div className="p-5 bg-white border-2 border-slate-200 rounded-2xl space-y-3">
 										<p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Strategic Lens</p>
-										<p className="text-xs text-slate-500 leading-snug">Choose your investment focus to rank and reveal the top 3 locations.</p>
+										<p className="text-xs text-slate-500 leading-snug">{selectedTract ? "Evaluate your selected tract through a strategic lens · See alternative tracts below for comparison." : "Choose your investment focus to rank and reveal the top 3 locations."}</p>
 										<div className="grid grid-cols-2 gap-3">
 											<button
 												onClick={() => { setStrategicLens('opportunity'); setViewMode('opportunity'); }}
@@ -1867,8 +1867,8 @@ ${selectedTract ? `location_context: "The investor has already selected and fixe
 													{topMatches.length > 0 && (
 													<div className="p-6 bg-slate-900 rounded-2xl space-y-4">
 														<div className="flex justify-between items-center">
-															<p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Top 3 Recommended Locations</p>
-															<span className="text-[9px] text-slate-500 italic">Based on business intent match</span>
+															<p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{selectedTract ? "Alternative Tracts for Comparison" : "Top 3 Recommended Locations"}</p>
+															<span className="text-[9px] text-slate-500 italic">{selectedTract ? "Your selected tract is shown above · these are alternatives" : "Based on business intent match</span>
 														</div>
 														<div className="space-y-3">
 															{topMatches.map((m, i) => (
