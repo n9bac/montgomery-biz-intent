@@ -1,4 +1,4 @@
-<!-- index.html v1.2.2 — separate data load errors from AI interpreter error dialog; amber banner replaces modal for map data failures: map popup "Describe business here" button; location_context injected into interpreter when tract pinned; tract badge + dynamic placeholder in intent panel; two-option Start New Search (keep tract / full reset); pinned tract fit card in results. -->
+<!-- index.html v1.2.3 — fillOpacity 0.8→0.45 (streets visible through tracts); address geocoder search bar (Nominatim + turf.booleanPointInPolygon) to locate and pin a tract by address: map popup "Describe business here" button; location_context injected into interpreter when tract pinned; tract badge + dynamic placeholder in intent panel; two-option Start New Search (keep tract / full reset); pinned tract fit card in results. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -200,6 +200,9 @@
             const [errorIsExternal, setErrorIsExternal] = useState(false);
             const [showErrorDialog, setShowErrorDialog] = useState(false);
             const [dataLoadError, setDataLoadError] = useState(null);
+            const [addressSearch, setAddressSearch] = useState('');
+            const [isGeocoding, setIsGeocoding] = useState(false);
+            const [geocodeError, setGeocodeError] = useState(null);
             const [uiMode, setUiMode] = useState('intent'); // Defaults to intent for prototype focus
             const [claudeApiKey, setClaudeApiKey] = useState('');
 			const [apiKeySubmitted, setApiKeySubmitted] = useState(false);
@@ -249,6 +252,68 @@
 			};
 			// Expose for Leaflet popup buttons (outside React DOM)
 			window._mbcGoToIntent = () => setUiMode('intent');
+
+			const geocodeAddress = async () => {
+				if (!addressSearch.trim() || !geoJsonData) return;
+				setIsGeocoding(true);
+				setGeocodeError(null);
+				try {
+					// Append Montgomery AL if not already present, to bias Nominatim results
+					const q = /montgomery|alabama|,\s*al/i.test(addressSearch)
+						? addressSearch.trim()
+						: `${addressSearch.trim()}, Montgomery, AL`;
+					const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1&countrycodes=us`;
+					const res = await fetch(url, { headers: { 'User-Agent': 'MontgomeryBusinessCompanion/1.2' } });
+					const data = await res.json();
+					if (!data || data.length === 0) {
+						setGeocodeError('Address not found. Try a more complete address, e.g. "300 Columbus St, Montgomery, AL".');
+						return;
+					}
+					const lat = parseFloat(data[0].lat);
+					const lon = parseFloat(data[0].lon);
+
+					// Find which tract contains this point
+					const pt = turf.point([lon, lat]);
+					const matchFeature = geoJsonData.features.find(f => {
+						try { return turf.booleanPointInPolygon(pt, f); }
+						catch(e) { return false; }
+					});
+
+					// Remove previous search marker
+					if (searchMarkerRef.current && mapRef.current) {
+						try { mapRef.current.removeLayer(searchMarkerRef.current); } catch(e) {}
+						searchMarkerRef.current = null;
+					}
+
+					// Place blue pin at geocoded address
+					if (mapRef.current) {
+						const pinIcon = L.divIcon({
+							className: '',
+							html: '<div style="width:14px;height:14px;background:#2563eb;border:2.5px solid white;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.35)"></div>',
+							iconSize: [14, 14],
+							iconAnchor: [7, 7]
+						});
+						const shortLabel = data[0].display_name.split(',').slice(0, 2).join(', ');
+						const marker = L.marker([lat, lon], { icon: pinIcon })
+							.addTo(mapRef.current)
+							.bindPopup(`<span style='font-size:11px;font-weight:700'>${shortLabel}</span>${matchFeature ? `<br><span style='font-size:10px;color:#6366f1'>Tract ${matchFeature.properties.TRACT}</span>` : ''}`);
+						marker.openPopup();
+						searchMarkerRef.current = marker;
+						mapRef.current.setView([lat, lon], 14);
+					}
+
+					if (matchFeature) {
+						setSelectedTract(matchFeature.properties);
+					} else {
+						setGeocodeError('Address found but lies outside Montgomery County tract boundaries.');
+					}
+				} catch(err) {
+					console.error('[Geocode]', err);
+					setGeocodeError('Geocoding failed — check your network connection and try again.');
+				} finally {
+					setIsGeocoding(false);
+				}
+			};
 
 			// pinnedTractFit: derived from selectedTract.fit_summary (added by renderMap via updatedGeo).
 			// When the user clicks a tract after analysis, onEachFeature captures f.properties from
@@ -300,6 +365,7 @@
 			};
             const mapRef = useRef(null);
             const geoJsonLayerRef = useRef(null);
+            const searchMarkerRef = useRef(null);
 
             useEffect(() => {
                 // --- business_families.json + cluster patch ---
@@ -1182,7 +1248,7 @@ ${selectedTract ? `location_context: "The investor has already selected and fixe
                 geoJsonLayerRef.current = L.geoJson(data, {
                     style: (f) => ({
                         fillColor: getColor(f.properties.opportunityScore, 'opportunity'),
-                        weight: 1.5, color: 'white', fillOpacity: 0.8
+                        weight: 1.5, color: 'white', fillOpacity: 0.45
                     }),
                     onEachFeature: (f, layer) => {
                         layer.on('click', () => setSelectedTract(f.properties));
@@ -1958,6 +2024,43 @@ ${selectedTract ? `location_context: "The investor has already selected and fixe
                                 ))}
                             </div>
                         </div>
+
+                        {/* Address search bar */}
+                        <div className="absolute z-[1000] flex flex-col items-center" style={{top:'1rem', left:'50%', transform:'translateX(-50%)', minWidth:'300px', maxWidth:'440px', width:'calc(100% - 320px)'}}>
+                            <div className="w-full bg-white rounded-2xl shadow-xl border border-slate-200 px-3 py-2 flex items-center gap-2">
+                                <span className="text-slate-400 text-sm shrink-0">🔍</span>
+                                <input
+                                    type="text"
+                                    value={addressSearch}
+                                    onChange={e => { setAddressSearch(e.target.value); setGeocodeError(null); }}
+                                    onKeyDown={e => e.key === 'Enter' && geocodeAddress()}
+                                    placeholder="Search address — e.g. 300 Columbus St"
+                                    className="flex-1 text-xs text-slate-700 placeholder-slate-300 outline-none bg-transparent min-w-0"
+                                />
+                                {addressSearch && (
+                                    <button onClick={() => { setAddressSearch(''); setGeocodeError(null); }} className="shrink-0 text-slate-300 hover:text-slate-500 text-xs">✕</button>
+                                )}
+                                <button
+                                    onClick={geocodeAddress}
+                                    disabled={isGeocoding || !addressSearch.trim()}
+                                    className="shrink-0 px-3 py-1.5 bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest rounded-xl disabled:opacity-40 transition hover:bg-indigo-700">
+                                    {isGeocoding ? '…' : 'Find'}
+                                </button>
+                            </div>
+                            {geocodeError && (
+                                <div className="w-full mt-1.5 bg-red-50 border border-red-100 rounded-xl px-3 py-2 text-[10px] text-red-600 font-medium">
+                                    {geocodeError}
+                                </div>
+                            )}
+                            {!geocodeError && selectedTract && addressSearch && !isGeocoding && (
+                                <div className="w-full mt-1.5 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 flex items-center gap-2">
+                                    <span className="text-blue-500 text-xs">📍</span>
+                                    <span className="text-[10px] text-blue-700 font-black uppercase tracking-widest">Tract {selectedTract.TRACT} selected</span>
+                                    <button onClick={() => setUiMode('intent')} className="ml-auto text-[10px] font-black text-indigo-600 hover:text-indigo-800 uppercase tracking-widest">Describe business →</button>
+                                </div>
+                            )}
+                        </div>
+
                         {dataLoadError && (
                             <div className="absolute top-0 left-0 right-0 z-[1500] bg-amber-50 border-b border-amber-200 px-4 py-3 flex items-start gap-3">
                                 <span className="text-amber-500 text-sm mt-0.5 shrink-0">⚠</span>
