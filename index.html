@@ -1,4 +1,4 @@
-<!-- index.html v1.2.4 — Strategic Lens reframed in place-first mode: subtitle and top-3 heading adapt when a tract is pinned (evaluate vs. rank): map popup "Describe business here" button; location_context injected into interpreter when tract pinned; tract badge + dynamic placeholder in intent panel; two-option Start New Search (keep tract / full reset); pinned tract fit card in results. -->
+<!-- index.html v1.2.5 — Place-first inversion: "What Fits Here?" toggle; computeInversion ranks business families against selected tract; optional Planning Context field: map popup "Describe business here" button; location_context injected into interpreter when tract pinned; tract badge + dynamic placeholder in intent panel; two-option Start New Search (keep tract / full reset); pinned tract fit card in results. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -203,6 +203,9 @@
             const [addressSearch, setAddressSearch] = useState('');
             const [isGeocoding, setIsGeocoding] = useState(false);
             const [geocodeError, setGeocodeError] = useState(null);
+            const [discoverMode, setDiscoverMode] = useState(false);
+            const [planningContext, setPlanningContext] = useState('');
+            const [invertedResults, setInvertedResults] = useState([]);
             const [uiMode, setUiMode] = useState('intent'); // Defaults to intent for prototype focus
             const [claudeApiKey, setClaudeApiKey] = useState('');
 			const [apiKeySubmitted, setApiKeySubmitted] = useState(false);
@@ -252,6 +255,18 @@
 			};
 			// Expose for Leaflet popup buttons (outside React DOM)
 			window._mbcGoToIntent = () => setUiMode('intent');
+
+			const computeInversion = () => {
+				if (!selectedTract||!mappingConfig) return;
+				const indicators = buildIndicatorFromTract(selectedTract);
+				const scored = FAMILY_CANONICAL_PROFILES.map(fam => {
+					const r = computeTractFit({location_needs:fam.location_needs},indicators,mappingConfig);
+					return {id:fam.id,label:fam.label,examples:fam.examples,
+						score:r?r.total_fit_score:0,strongest:r?r.strongest_matches:[]};
+				});
+				scored.sort((a,b)=>b.score-a.score);
+				setInvertedResults(scored.slice(0,5));
+			};
 
 			const geocodeAddress = async () => {
 				if (!addressSearch.trim() || !geoJsonData) return;
@@ -801,6 +816,16 @@ ${selectedTract ? `location_context: "The investor has already selected and fixe
                 return profile;
             };
 
+            const buildIndicatorFromTract = (tract) => {
+                const biz=tract.normBizDensity||0,inc=tract.normInc||0,
+                    transit=parseFloat(tract.transitAccessScore)||0,demand=parseFloat(tract.demandScore)||0,
+                    night=biz*0.6+transit*0.4,comm=biz*0.7+demand*0.3;
+                return {demand_score:demand,business_density:biz,relative_business_presence:biz,
+                    median_income:inc,median_age:0.5,transit_access:transit,parking_proxy:1-biz,
+                    vehicle_access_proxy:(1-biz)*0.7+0.15,family_proxy:0.5,nightlife_proxy:night,
+                    commercial_activity_proxy:comm,low_cost_proxy:1-inc,
+                    after_work_leisure_proxy:0.35*night+0.25*transit+0.25*comm+0.15*(1-biz)};
+            };
             const computeTractFit = (intent, indicators, mapping) => {
                 if (!intent || !indicators || !mapping) return null;
                 
@@ -926,6 +951,20 @@ ${selectedTract ? `location_context: "The investor has already selected and fixe
                 };
             };
 
+            const FAMILY_CANONICAL_PROFILES = [
+                {id:'food_beverage_sitdown',label:'Restaurant / Sit-Down Dining',examples:['restaurant','café','bistro','wine bar'],location_needs:{visibility:0.80,footfall:0.75,parking:0.40,transit:0.70,affluent_area:0.55,family_area:0.30,nightlife_area:0.50,low_rent_priority:0.20,vehicle_access:0.30,luxury_cluster_fit:0.60,compatible_business_cluster:0.75,daytime_worker_concentration:0.45,high_professional_cluster:0.40}},
+                {id:'food_beverage_quickservice',label:'Quick Service / Fast Food',examples:['fast food','takeout','food truck'],location_needs:{visibility:0.85,footfall:0.90,parking:0.50,transit:0.65,affluent_area:0.20,family_area:0.40,nightlife_area:0.30,low_rent_priority:0.55,vehicle_access:0.60,luxury_cluster_fit:0.10,compatible_business_cluster:0.70,daytime_worker_concentration:0.70,high_professional_cluster:0.20}},
+                {id:'retail_storefront',label:'Specialty Retail',examples:['boutique','shop','store','market'],location_needs:{visibility:0.80,footfall:0.85,parking:0.50,transit:0.60,affluent_area:0.45,family_area:0.35,nightlife_area:0.30,low_rent_priority:0.40,vehicle_access:0.45,luxury_cluster_fit:0.50,compatible_business_cluster:0.80,daytime_worker_concentration:0.55,high_professional_cluster:0.35}},
+                {id:'personal_care_wellness',label:'Personal Care & Wellness',examples:['salon','spa','barbershop','nail studio'],location_needs:{visibility:0.70,footfall:0.70,parking:0.55,transit:0.65,affluent_area:0.50,family_area:0.45,nightlife_area:0.20,low_rent_priority:0.45,vehicle_access:0.50,luxury_cluster_fit:0.45,compatible_business_cluster:0.70,daytime_worker_concentration:0.60,high_professional_cluster:0.40}},
+                {id:'fitness_recreation',label:'Fitness & Recreation',examples:['gym','yoga studio','dance','martial arts'],location_needs:{visibility:0.65,footfall:0.65,parking:0.65,transit:0.70,affluent_area:0.45,family_area:0.50,nightlife_area:0.20,low_rent_priority:0.50,vehicle_access:0.65,luxury_cluster_fit:0.35,compatible_business_cluster:0.55,daytime_worker_concentration:0.55,high_professional_cluster:0.45}},
+                {id:'health_medical_therapy',label:'Health & Medical / Therapy',examples:['clinic','dentist','therapist','pharmacy'],location_needs:{visibility:0.60,footfall:0.55,parking:0.75,transit:0.65,affluent_area:0.50,family_area:0.60,nightlife_area:0.05,low_rent_priority:0.35,vehicle_access:0.70,luxury_cluster_fit:0.30,compatible_business_cluster:0.50,daytime_worker_concentration:0.55,high_professional_cluster:0.55}},
+                {id:'education_training',label:'Education & Training',examples:['tutoring','language school','coding bootcamp'],location_needs:{visibility:0.55,footfall:0.55,parking:0.60,transit:0.75,affluent_area:0.40,family_area:0.65,nightlife_area:0.05,low_rent_priority:0.60,vehicle_access:0.55,luxury_cluster_fit:0.20,compatible_business_cluster:0.45,daytime_worker_concentration:0.45,high_professional_cluster:0.50}},
+                {id:'childcare_family_service',label:'Childcare & Family Services',examples:['daycare','after-school','pediatric'],location_needs:{visibility:0.55,footfall:0.50,parking:0.75,transit:0.60,affluent_area:0.35,family_area:0.90,nightlife_area:0.00,low_rent_priority:0.55,vehicle_access:0.80,luxury_cluster_fit:0.10,compatible_business_cluster:0.40,daytime_worker_concentration:0.50,high_professional_cluster:0.30}},
+                {id:'professional_services',label:'Professional Services',examples:['law office','accountant','real estate'],location_needs:{visibility:0.55,footfall:0.45,parking:0.65,transit:0.60,affluent_area:0.60,family_area:0.20,nightlife_area:0.05,low_rent_priority:0.25,vehicle_access:0.60,luxury_cluster_fit:0.55,compatible_business_cluster:0.50,daytime_worker_concentration:0.75,high_professional_cluster:0.75}},
+                {id:'creative_studio',label:'Creative Studio & Arts',examples:['art gallery','photography','ceramics','maker space'],location_needs:{visibility:0.55,footfall:0.50,parking:0.45,transit:0.65,affluent_area:0.45,family_area:0.25,nightlife_area:0.40,low_rent_priority:0.65,vehicle_access:0.40,luxury_cluster_fit:0.40,compatible_business_cluster:0.60,daytime_worker_concentration:0.30,high_professional_cluster:0.35}},
+                {id:'food_beverage_nightlife',label:'Bar / Nightlife Venue',examples:['bar','cocktail lounge','nightclub'],location_needs:{visibility:0.70,footfall:0.70,parking:0.35,transit:0.80,affluent_area:0.40,family_area:0.05,nightlife_area:0.90,low_rent_priority:0.30,vehicle_access:0.25,luxury_cluster_fit:0.50,compatible_business_cluster:0.75,daytime_worker_concentration:0.25,high_professional_cluster:0.35}},
+                {id:'convenience_daily_services',label:'Convenience & Daily Services',examples:['laundromat','dry cleaning','copy shop'],location_needs:{visibility:0.70,footfall:0.80,parking:0.55,transit:0.70,affluent_area:0.20,family_area:0.50,nightlife_area:0.10,low_rent_priority:0.70,vehicle_access:0.55,luxury_cluster_fit:0.05,compatible_business_cluster:0.65,daytime_worker_concentration:0.65,high_professional_cluster:0.20}},
+            ];
             const getColor = (val, mode) => {
                 const numVal = typeof val === 'string' ? parseFloat(val) : val;
                 if (mode === 'attractiveness') {
@@ -1523,15 +1562,24 @@ ${selectedTract ? `location_context: "The investor has already selected and fixe
 													<button onClick={() => { setSelectedTract(null); setShowResetConfirm(false); }} className="ml-auto text-[9px] text-slate-400 hover:text-slate-600 underline">Clear</button>
 												</div>
 											)}
-											<textarea 
+											{selectedTract && (<div className="flex gap-2 mb-1">
+													<button onClick={()=>{setDiscoverMode(false);setInvertedResults([]);}} className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition border-2 ${!discoverMode?"bg-slate-900 text-white border-slate-900":"bg-white text-slate-500 border-slate-200 hover:border-slate-400"}`}>Describe a Business</button>
+													<button onClick={()=>{setDiscoverMode(true);setInterpretedIntent(null);setTopMatches([]);setStrategicLens(null);setPinnedTractFit(null);}} className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition border-2 ${discoverMode?"bg-indigo-600 text-white border-indigo-600":"bg-white text-slate-500 border-slate-200 hover:border-indigo-300"}`}>What Fits Here?</button>
+												</div>)}
+											{!discoverMode && <textarea 
 												value={investorDescription}
 												onChange={(e) => setInvestorDescription(e.target.value)}
 												placeholder={selectedTract ? `Describe your business idea for Tract ${selectedTract.TRACT}…` : "e.g. I want to open a small independent coffee shop with some bakery items."}
 												readOnly={!!interpretedIntent}
 												className={`w-full h-32 p-4 border rounded-xl text-sm outline-none transition ${interpretedIntent ? 'bg-slate-100 border-slate-200 text-slate-500 cursor-not-allowed' : 'bg-slate-50 border-slate-200 focus:ring-2 focus:ring-slate-900'}`}
-											/>
+											/>}
+											{discoverMode && (<div className="space-y-3 mt-1">
+													<label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Planning Context <span className="font-medium text-slate-300 normal-case">(optional)</span></label>
+													<textarea value={planningContext} onChange={e=>setPlanningContext(e.target.value)} placeholder="e.g. City TOD zone · ground-floor retail preferred · arts district activation" className="w-full h-24 p-4 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:ring-2 focus:ring-indigo-400 outline-none transition"/>
+													<button onClick={computeInversion} disabled={!mappingConfig} className={`w-full py-3 rounded-xl font-black text-xs uppercase tracking-widest transition ${!mappingConfig?"bg-slate-100 text-slate-400 cursor-not-allowed":"bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg"}`}>Find Best Businesses for This Tract</button>
+												</div>)}
                                         </div>
-                                        <div>
+                                        {!discoverMode && <div>
                                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Investor Priorities (Comma separated)</label>
 											<input 
 												type="text"
@@ -1541,7 +1589,7 @@ ${selectedTract ? `location_context: "The investor has already selected and fixe
 												readOnly={!!interpretedIntent}
 												className={`w-full p-4 border rounded-xl text-sm outline-none transition ${interpretedIntent ? 'bg-slate-100 border-slate-200 text-slate-500 cursor-not-allowed' : 'bg-slate-50 border-slate-200 focus:ring-2 focus:ring-slate-900'}`}
 											/>
-                                        </div>
+                                        </div>}
 										{!apiKeySubmitted && (
 											<div className="space-y-2">
 												<label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Claude API Key</label>
@@ -1568,7 +1616,7 @@ ${selectedTract ? `location_context: "The investor has already selected and fixe
 												<button onClick={() => { setApiKeySubmitted(false); setClaudeApiKey(''); }} className="ml-auto text-[9px] text-slate-400 hover:text-slate-600 underline">Reset</button>
 											</div>
 										)}
-										{!interpretedIntent ? (
+										{!interpretedIntent && !discoverMode ? (
 											<button 
 												onClick={runInterpreter}
 												disabled={!investorDescription || isInterpreting}
@@ -1592,6 +1640,7 @@ ${selectedTract ? `location_context: "The investor has already selected and fixe
 														setErrorIsExternal(false);
 														setShowErrorDialog(false);
 														setShowResetConfirm(false);
+														setDiscoverMode(false);setInvertedResults([]);setPlanningContext('');
 													}}
 													className="w-full py-3 rounded-xl font-black text-xs uppercase tracking-widest transition bg-blue-600 text-white hover:bg-blue-700 shadow-sm">
 													📍 Keep tract · New business
@@ -1611,6 +1660,7 @@ ${selectedTract ? `location_context: "The investor has already selected and fixe
 														setErrorIsExternal(false);
 														setShowErrorDialog(false);
 														setShowResetConfirm(false);
+														setDiscoverMode(false);setInvertedResults([]);setPlanningContext('');
 													}}
 													className="w-full py-3 rounded-xl font-black text-xs uppercase tracking-widest transition bg-slate-700 text-white hover:bg-slate-900 shadow-sm">
 													↩ Full reset
@@ -1645,7 +1695,43 @@ ${selectedTract ? `location_context: "The investor has already selected and fixe
 
                             {/* Result Panel */}
                             <div className="space-y-6">
-                                {!interpretedIntent ? (
+                                {discoverMode ? (
+                                    invertedResults.length > 0 ? (
+                                        <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
+                                            <div className="p-6 bg-slate-900 rounded-2xl">
+                                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Best Business Fits · Tract {selectedTract?.TRACT}</p>
+                                                <p className="text-[9px] text-slate-500 italic mb-4">Ranked by location-needs alignment with tract characteristics</p>
+                                                {planningContext && (<div className="mb-4 px-3 py-2 bg-indigo-900/50 border border-indigo-800 rounded-xl">
+                                                    <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-0.5">📋 Planning Context Noted</p>
+                                                    <p className="text-[10px] text-indigo-300 italic">{planningContext}</p>
+                                                </div>)}
+                                                <div className="space-y-3">
+                                                {invertedResults.map((r,i) => (
+                                                    <div key={r.id} className="bg-slate-800 rounded-xl p-4 space-y-2">
+                                                        <div className="flex justify-between items-center">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[9px] font-black flex items-center justify-center">{i+1}</span>
+                                                                <span className="text-white font-black text-sm">{r.label}</span>
+                                                            </div>
+                                                            <span className="bg-indigo-500 text-white px-2 py-0.5 rounded-full text-[10px] font-black">{(r.score*100).toFixed(0)}% fit</span>
+                                                        </div>
+                                                        <p className="text-[9px] text-slate-400 italic">{r.examples.join(' · ')}</p>
+                                                        {r.strongest.length > 0 && (<div className="flex flex-wrap gap-1">
+                                                            {r.strongest.map(s=>(<span key={s} className="text-[9px] bg-emerald-900/50 text-emerald-300 px-1.5 py-0.5 rounded font-bold uppercase">✓ {s}</span>))}
+                                                        </div>)}
+                                                    </div>
+                                                ))}
+                                                </div>
+                                            </div>
+                                            <button onClick={()=>setUiMode('map')} className="w-full py-3 bg-white text-slate-900 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-100 transition">Explore Full Montgomery Map</button>
+                                        </div>
+                                    ) : (
+                                        <div className="h-full min-h-[400px] bg-slate-100/50 border-2 border-dashed border-slate-200 rounded-3xl flex flex-col items-center justify-center p-8 text-center">
+                                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center mb-4 shadow-sm"><span className="text-slate-300 text-2xl">🏙</span></div>
+                                            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Press Find Best Businesses to discover fits for Tract {selectedTract?.TRACT}</p>
+                                        </div>
+                                    )
+                                ) : !interpretedIntent ? (
                                     <div className="h-full min-h-[400px] bg-slate-100/50 border-2 border-dashed border-slate-200 rounded-3xl flex flex-col items-center justify-center p-8 text-center">
                                         <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center mb-4 shadow-sm">
                                             <span className="text-slate-300 text-xl">⚡</span>
